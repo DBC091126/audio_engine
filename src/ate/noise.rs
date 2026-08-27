@@ -1,0 +1,87 @@
+use super::config::NoiseParams;
+
+#[derive(Debug, Clone)]
+pub struct Lcg {
+    state: u64,
+}
+
+impl Lcg {
+    pub fn new(seed: u64) -> Self {
+        Self { state: seed.max(1) }
+    }
+
+    pub fn next_u32(&mut self) -> u32 {
+        self.state = self
+            .state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (self.state >> 32) as u32
+    }
+
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u32() >> 8) as f32 / (1u32 << 24) as f32
+    }
+
+    pub fn gaussian(&mut self) -> f32 {
+        let u1 = (self.next_f32() + 1.0e-9).min(0.999_999);
+        let u2 = self.next_f32();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NoiseSimulator {
+    rng: Lcg,
+    pink_state: f32,
+    tape_state: f32,
+}
+
+impl NoiseSimulator {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            rng: Lcg::new(seed),
+            pink_state: 0.0,
+            tape_state: 0.0,
+        }
+    }
+
+    pub fn add_noise(&mut self, samples: &mut [f32], params: &NoiseParams, sample_rate: f32) {
+        let thermal = db_to_amp(params.thermal_db);
+        let pink = db_to_amp(params.pink_db);
+        let hum = db_to_amp(params.hum_db);
+        let vinyl = db_to_amp(params.vinyl_db);
+        let crackle = db_to_amp(params.crackle_db);
+        let tape = db_to_amp(params.tape_db);
+
+        for (i, sample) in samples.iter_mut().enumerate() {
+            let white = self.rng.gaussian();
+            self.pink_state += 0.02 * white;
+            self.pink_state *= 0.98;
+            self.tape_state += 0.08 * white;
+            self.tape_state *= 0.96;
+            let tape_noise = white - self.tape_state;
+
+            let t = i as f32 / sample_rate;
+            let phase = 2.0 * std::f32::consts::PI * params.hum_hz * t;
+            let hum_noise = phase.sin() + 0.5 * (2.0 * phase).sin() + 0.25 * (3.0 * phase).sin();
+            let vinyl_noise =
+                self.pink_state * 0.5 + 0.4 * (2.0 * std::f32::consts::PI * 28.0 * t).sin();
+            let crackle_noise = if self.rng.next_f32() < 0.000_02 {
+                self.rng.gaussian().signum() * 0.8
+            } else {
+                0.0
+            };
+
+            *sample += white * thermal
+                + self.pink_state * pink
+                + hum_noise * hum
+                + vinyl_noise * vinyl
+                + crackle_noise * crackle
+                + tape_noise * tape;
+        }
+    }
+}
+
+pub fn db_to_amp(db: f32) -> f32 {
+    10.0f32.powf(db / 20.0)
+}

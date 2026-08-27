@@ -1,0 +1,15 @@
+/target
+/gui/target/
+/dist/
+/test_audio
+/test.wav
+/test.flac
+/test.dsf
+/test.dff
+/out.wav
+/out.flac
+/out.dsf
+/out.dff
+/ffi_out.wav
+/ffi_out.dsf
+/ffi_out.dff

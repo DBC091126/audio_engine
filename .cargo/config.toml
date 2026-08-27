@@ -1,0 +1,7 @@
+[env]
+# ffmpeg-sys-next uses libclang at build time. This machine's libclang does not
+# discover GCC's include directories automatically, so point bindgen at them.
+BINDGEN_EXTRA_CLANG_ARGS = "-I/usr/lib/gcc/x86_64-linux-gnu/15/include -I/usr/include/x86_64-linux-gnu"
+# libsamplerate-sys 0.1.x ships a CMakeLists that predates CMake 3.5 policy
+# support. Newer CMake versions require this compatibility switch.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
