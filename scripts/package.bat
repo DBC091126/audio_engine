@@ -11,7 +11,18 @@ if defined RUST_TARGET (
 )
 
 set "NATIVE_DIR=%ROOT%\target\%TARGET%\release"
-if exist "%ROOT%\target\%TARGET%" (
+if defined RUST_TARGET (
+  where rustup >nul 2>nul
+  if errorlevel 1 (
+    echo rustup not found >&2
+    exit /b 2
+  )
+  call rustup target add "%TARGET%"
+  pushd "%ROOT%"
+  call cargo build --release --target "%TARGET%"
+  if errorlevel 1 exit /b 1
+  popd
+) else if exist "%ROOT%\target\%TARGET%" (
   where rustup >nul 2>nul
   if errorlevel 1 (
     echo rustup not found >&2
@@ -44,6 +55,7 @@ popd
 
 set "DIST=%ROOT%\gui\target\audio-engine-gui-0.1.0-dist"
 set "OUT=%ROOT%\dist"
+if exist "%OUT%" rmdir /s /q "%OUT%"
 if not exist "%OUT%" mkdir "%OUT%"
 
 if defined PACKAGE_TYPE (

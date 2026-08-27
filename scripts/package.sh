@@ -29,11 +29,9 @@ else
 fi
 
 NATIVE_DIR="$ROOT/target/$TARGET/release"
-if [ -d "$ROOT/target/$TARGET" ]; then
-  if ! (cd "$ROOT" && cargo build --release --target "$TARGET"); then
-    rustup target add "$TARGET"
-    (cd "$ROOT" && cargo build --release --target "$TARGET")
-  fi
+if [ -n "${RUST_TARGET:-}" ]; then
+  rustup target add "$TARGET"
+  (cd "$ROOT" && cargo build --release --target "$TARGET")
 else
   (cd "$ROOT" && cargo build --release)
   NATIVE_DIR="$ROOT/target/release"
@@ -48,6 +46,7 @@ mvn -q -DskipTests package -Daudio.engine.native.dir="$NATIVE_DIR"
 
 DIST="$ROOT/gui/target/audio-engine-gui-0.1.0-dist"
 OUT="$ROOT/dist"
+rm -rf "$OUT"
 mkdir -p "$OUT"
 
 PACKAGE_TYPE="${PACKAGE_TYPE:-}"
