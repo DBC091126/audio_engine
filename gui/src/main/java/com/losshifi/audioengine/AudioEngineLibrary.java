@@ -37,20 +37,17 @@ public interface AudioEngineLibrary extends Library {
         String configured = System.getProperty("audio_engine.library.path");
         if (configured != null && !configured.isBlank()) {
             System.setProperty("jna.library.path", configured);
+            System.setProperty("java.library.path", configured);
         } else {
             Path nativeDir = nativeDirFromProtectionDomain();
             if (nativeDir != null) {
                 System.setProperty("jna.library.path", nativeDir.toString());
+                System.setProperty("java.library.path", nativeDir.toString());
             } else {
-                File direct = new File("target/release");
-                if (!direct.isDirectory()) {
-                    direct = new File("../target/release");
-                }
-                if (!direct.isDirectory()) {
-                    direct = new File("audio_engine/target/release");
-                }
-                if (direct.isDirectory()) {
+                File direct = findDevelopmentNativeDir();
+                if (direct != null) {
                     System.setProperty("jna.library.path", direct.getAbsolutePath());
+                    System.setProperty("java.library.path", direct.getAbsolutePath());
                 }
             }
         }
@@ -69,13 +66,53 @@ public interface AudioEngineLibrary extends Library {
             URI uri = location.toURI();
             Path codeSource = Path.of(uri);
             Path dir = Files.isDirectory(codeSource) ? codeSource : codeSource.getParent();
-            Path nativeDir = dir == null ? null : dir.resolve("native");
-            if (nativeDir != null && Files.isDirectory(nativeDir)) {
-                return nativeDir;
+            if (dir != null) {
+                for (int depth = 0; depth < 4; depth++) {
+                    Path nativeDir = dir.resolve("native");
+                    if (Files.isDirectory(nativeDir) && hasNativeLibrary(nativeDir)) {
+                        return nativeDir;
+                    }
+                    dir = dir.getParent();
+                    if (dir == null) {
+                        break;
+                    }
+                }
             }
         } catch (Exception ignored) {
             // Fall back to development directory probing below.
         }
         return null;
+    }
+
+    private static File findDevelopmentNativeDir() {
+        String userDir = System.getProperty("user.dir", ".");
+        String[] candidates = {
+                "target/release",
+                "../target/release",
+                "audio_engine/target/release",
+                "audio_engine/gui/target/audio-engine-gui-0.1.0-dist/native",
+        };
+        for (String candidate : candidates) {
+            File dir = new File(userDir, candidate);
+            if (dir.isDirectory() && hasNativeLibrary(dir.toPath())) {
+                return dir;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasNativeLibrary(Path nativeDir) {
+        return Files.isRegularFile(nativeDir.resolve(nativeLibraryName()));
+    }
+
+    private static String nativeLibraryName() {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (os.contains("win")) {
+            return "audio_engine.dll";
+        }
+        if (os.contains("mac")) {
+            return "libaudio_engine.dylib";
+        }
+        return "libaudio_engine.so";
     }
 }
