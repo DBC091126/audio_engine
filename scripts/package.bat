@@ -73,7 +73,7 @@ if defined PACKAGE_TYPE (
   --main-jar "audio-engine-gui-0.1.0.jar" ^
   --main-class "com.losshifi.audioengine.Main" ^
   --module-path "%DIST%" ^
-  --add-modules "javafx.controls" ^
+  --add-modules "javafx.controls,java.logging,java.naming" ^
   --java-options "-Dprism.order=sw"
 
 echo package output: %OUT%
