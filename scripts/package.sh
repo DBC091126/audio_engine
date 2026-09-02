@@ -41,8 +41,19 @@ JAVA_HOME="${GUI_JAVA_HOME:-/home/dbc211/.sdkman/candidates/java/21.0.9-tem}"
 export JAVA_HOME
 export PATH="$JAVA_HOME/bin:/home/dbc211/.sdkman/candidates/maven/current/bin:/usr/bin:/bin"
 
+if [ -n "${MAVEN_CMD:-}" ]; then
+  MVN="$MAVEN_CMD"
+elif command -v mvn >/dev/null 2>&1; then
+  MVN="mvn"
+elif [ -x "$ROOT/gui/mvnw" ]; then
+  MVN="$ROOT/gui/mvnw"
+else
+  echo "mvn not found" >&2
+  exit 2
+fi
+
 cd "$ROOT/gui"
-mvn -q -DskipTests package -Daudio.engine.native.dir="$NATIVE_DIR"
+"$MVN" -q -DskipTests package -Daudio.engine.native.dir="$NATIVE_DIR"
 
 DIST="$ROOT/gui/target/audio-engine-gui-0.1.0-dist"
 OUT="$ROOT/dist"

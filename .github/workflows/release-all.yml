@@ -1,0 +1,149 @@
+name: release-all
+
+on:
+  workflow_dispatch:
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rust_target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            suffix: linux-x86_64
+          - os: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            arch: arm64
+            suffix: linux-arm64
+          - os: macos-13
+            rust_target: x86_64-apple-darwin
+            arch: x86_64
+            suffix: macos-x86_64
+          - os: macos-14
+            rust_target: aarch64-apple-darwin
+            arch: arm64
+            suffix: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install native build dependencies
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == ubuntu-* ]]; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              pkg-config libavformat-dev libavcodec-dev libavutil-dev \
+              libavfilter-dev libswresample-dev libswscale-dev libavdevice-dev
+          else
+            brew install ffmpeg pkg-config
+          fi
+
+      - name: Build installer
+        env:
+          GUI_JAVA_HOME: ${{ env.JAVA_HOME }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+          MAVEN_CMD: ${{ github.workspace }}/gui/mvnw
+        shell: bash
+        run: bash scripts/package.sh
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -lh dist
+          package=$(find dist -maxdepth 1 -type f | head -n 1)
+          test -n "$package"
+          if [[ "${{ matrix.os }}" == macos-* ]]; then
+            ext="${package##*.}"
+            renamed="dist/audio-engine_0.1.0_${{ matrix.suffix }}.$ext"
+            mv "$package" "$renamed"
+            package="$renamed"
+          fi
+          gh release upload v0.1.0 "$package" \
+            --repo DBC091126/audio_engine --clobber
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-ffmpeg
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Remove Linux-only Cargo environment
+        run: rm -f .cargo/config.toml
+
+      - name: Build Rust engine for Windows
+        shell: msys2 {0}
+        run: |
+          export PATH="$HOME/.cargo/bin:/mingw64/bin:/usr/bin:$PATH"
+          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
+          export FFMPEG_DIR=/mingw64
+          cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Build Java GUI distribution
+        run: |
+          cd gui
+          ./mvnw -q -DskipTests package \
+            -Daudio.engine.native.dir="$PWD/../target/x86_64-pc-windows-gnu/release"
+
+      - name: Build Windows installer
+        run: |
+          "$JAVA_HOME/bin/jpackage" \
+            --type exe \
+            --input gui/target/audio-engine-gui-0.1.0-dist \
+            --dest dist \
+            --name AudioEngine \
+            --app-version 0.1.0 \
+            --main-jar audio-engine-gui-0.1.0.jar \
+            --main-class com.losshifi.audioengine.Main \
+            --module-path gui/target/audio-engine-gui-0.1.0-dist \
+            --add-modules javafx.controls,java.logging,java.naming \
+            --win-menu \
+            --win-shortcut
+
+      - name: Upload Windows installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ls -lh dist
+          installer=$(find dist -maxdepth 1 -name '*.exe' -print -quit)
+          test -n "$installer"
+          gh release upload v0.1.0 "$installer" \
+            --repo DBC091126/audio_engine --clobber
