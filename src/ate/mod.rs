@@ -8,7 +8,7 @@ mod presets;
 mod state_engine;
 mod stereo_variance;
 
-pub use analyzer::{db_from_amp, AnalyzerResult, AteAnalyzer};
+pub use analyzer::{analyze_spectrum_mono, db_from_amp, AnalyzerResult, AteAnalyzer, SpectrumPoint};
 pub use config::{
     AteConfig, AteCustomParams, AtePreset, ChannelMismatch, CrossoverParams, JitterParams,
     JitterType, NoiseParams, OversamplingMode, StateParams,
@@ -58,97 +58,41 @@ pub fn process_ate(
         44_100.0
     };
 
-    let mut left = deinterleave(input, 0, frames);
-    let mut right = deinterleave(input, 1, frames);
-
     if let Some(callback) = progress_callback.as_mut() {
         callback(0.05);
     }
 
-    if factor > 1 {
-        left = oversampling::upsample_channel(&left, factor, sample_rate);
-        right = oversampling::upsample_channel(&right, factor, sample_rate);
-    }
-
-    left = oversampling::apply_dc_block(&left, working_rate);
-    right = oversampling::apply_dc_block(&right, working_rate);
-    left = apply_linear_stage(&left, working_rate, config.preset);
-    right = apply_linear_stage(&right, working_rate, config.preset);
-
-    if let Some(callback) = progress_callback.as_mut() {
-        callback(0.25);
-    }
-
-    let mut state_l = AteState::new();
-    let mut state_r = AteState::new();
-    let mut processed_left = Vec::with_capacity(left.len());
-    let mut processed_right = Vec::with_capacity(right.len());
-
-    for (l, r) in left.into_iter().zip(right) {
-        let l = nonlinear::apply_nonlinear(
-            l,
-            &params.poly_a,
-            &params.crossover,
-            &mut state_l,
-            &params.state_params,
-            &params.mem_poly,
-            config.intensity,
-        );
-        let r = nonlinear::apply_nonlinear(
-            r,
-            &params.poly_a,
-            &params.crossover,
-            &mut state_r,
-            &params.state_params,
-            &params.mem_poly,
-            config.intensity,
-        );
-        processed_left.push(oversampling::denormal_protect(l));
-        processed_right.push(oversampling::denormal_protect(r));
-    }
-
-    let mut noise_sim_l = NoiseSimulator::new(config.stereo_variance_seed);
-    let mut noise_sim_r = NoiseSimulator::new(config.stereo_variance_seed ^ 0x5DEECE66D);
-    noise_sim_l.add_noise(
-        &mut processed_left,
-        &params.noise_params,
-        working_rate as f32,
-    );
-    noise_sim_r.add_noise(
-        &mut processed_right,
-        &params.noise_params,
-        working_rate as f32,
+    let left_input = deinterleave(input, 0, frames);
+    let right_input = deinterleave(input, 1, frames);
+    let (mut processed_left, mut processed_right) = rayon::join(
+        || {
+            process_ate_channel(
+                left_input,
+                &params,
+                factor,
+                sample_rate,
+                working_rate,
+                config.preset,
+                config.intensity,
+                config.stereo_variance_seed,
+            )
+        },
+        || {
+            process_ate_channel(
+                right_input,
+                &params,
+                factor,
+                sample_rate,
+                working_rate,
+                config.preset,
+                config.intensity,
+                config.stereo_variance_seed ^ 0x5DEECE66D,
+            )
+        },
     );
 
     if let Some(callback) = progress_callback.as_mut() {
         callback(0.55);
-    }
-
-    if params.jitter_params.enabled {
-        let mut jitter_l = jitter::JitterSimulator::new(config.stereo_variance_seed);
-        let mut jitter_r = jitter::JitterSimulator::new(config.stereo_variance_seed ^ 0x9E3779B9);
-        processed_left =
-            jitter_l.apply_jitter(&processed_left, &params.jitter_params, working_rate as f32);
-        processed_right =
-            jitter_r.apply_jitter(&processed_right, &params.jitter_params, working_rate as f32);
-    }
-
-    if sample_rate >= 176_400 {
-        add_ultrasonic_noise(
-            &mut processed_left,
-            config.stereo_variance_seed,
-            working_rate as f32,
-        );
-        add_ultrasonic_noise(
-            &mut processed_right,
-            config.stereo_variance_seed ^ 0xD1B54A32,
-            working_rate as f32,
-        );
-    }
-
-    if factor > 1 {
-        processed_left = oversampling::downsample_channel(&processed_left, factor, sample_rate);
-        processed_right = oversampling::downsample_channel(&processed_right, factor, sample_rate);
     }
 
     stereo_variance::apply_channel_variance(
@@ -174,6 +118,65 @@ pub fn process_ate(
     }
 }
 
+fn process_ate_channel(
+    mut samples: Vec<f32>,
+    params: &AteCustomParams,
+    factor: usize,
+    sample_rate: u32,
+    working_rate: u32,
+    preset: AtePreset,
+    intensity: f32,
+    seed: u64,
+) -> Vec<f32> {
+    if factor > 1 {
+        samples = oversampling::upsample_channel(&samples, factor, sample_rate);
+    }
+    samples = oversampling::apply_dc_block(&samples, working_rate);
+    samples = apply_linear_stage(&samples, working_rate, preset);
+
+    let mut state = AteState::new();
+    let mut out = Vec::with_capacity(samples.len());
+    for sample in samples {
+        let processed = nonlinear::apply_nonlinear(
+            sample,
+            &params.poly_a,
+            &params.crossover,
+            &mut state,
+            &params.state_params,
+            &params.mem_poly,
+            intensity,
+        );
+        out.push(oversampling::denormal_protect(processed));
+    }
+
+    let mut noise_sim = NoiseSimulator::new(seed);
+    noise_sim.add_noise(&mut out, &params.noise_params, working_rate as f32);
+
+    if params.jitter_params.enabled {
+        let mut jitter_sim = jitter::JitterSimulator::new(seed ^ 0x9E3779B9);
+        out = jitter_sim.apply_jitter(&out, &params.jitter_params, working_rate as f32);
+    }
+
+    if sample_rate >= 176_400 {
+        add_ultrasonic_noise(&mut out, seed ^ 0xD1B54A32, working_rate as f32);
+    }
+
+    if factor > 1 {
+        out = oversampling::downsample_channel(&out, factor, sample_rate);
+    }
+    out
+}
+
+fn add_ultrasonic_noise(samples: &mut [f32], seed: u64, sample_rate: f32) {
+    let mut rng = Lcg::new(seed ^ 0xA7E3_0000);
+    let level = noise::db_to_amp(-110.0);
+    for (i, sample) in samples.iter_mut().enumerate() {
+        let t = i as f32 / sample_rate;
+        let envelope = 0.5 + 0.5 * (2.0 * std::f32::consts::PI * 40_000.0 * t).sin();
+        *sample += rng.gaussian() * level * envelope;
+    }
+}
+
 /// Simple intensity calibration helper: scales `config.intensity` toward a
 /// target H2 level based on the current analyzer measurement.
 pub fn calibrate_ate(
@@ -192,23 +195,17 @@ pub fn calibrate_ate(
 fn apply_linear_stage(samples: &[f32], sample_rate: u32, preset: AtePreset) -> Vec<f32> {
     let cutoff = match preset {
         AtePreset::Tape | AtePreset::Hybrid => 38_000.0,
-        AtePreset::Tube | AtePreset::VintageSolidState => 45_000.0,
+        AtePreset::Tube
+        | AtePreset::VintageSolidState
+        | AtePreset::SolidStateClassASingleEnded
+        | AtePreset::SolidStateClassAPushPull
+        | AtePreset::SolidStateClassAb => 45_000.0,
         _ => 55_000.0,
     };
     if sample_rate as f32 > cutoff * 2.0 {
         oversampling::apply_lowpass(samples, sample_rate, cutoff)
     } else {
         samples.to_vec()
-    }
-}
-
-fn add_ultrasonic_noise(samples: &mut [f32], seed: u64, sample_rate: f32) {
-    let mut rng = Lcg::new(seed ^ 0xA7E3_0000);
-    let level = noise::db_to_amp(-110.0);
-    for (i, sample) in samples.iter_mut().enumerate() {
-        let t = i as f32 / sample_rate;
-        let envelope = 0.5 + 0.5 * (2.0 * std::f32::consts::PI * 40_000.0 * t).sin();
-        *sample += rng.gaussian() * level * envelope;
     }
 }
 

@@ -142,6 +142,119 @@ pub fn preset_params(preset: AtePreset) -> AteCustomParams {
                 ..AteCustomParams::default()
             }
         }
+        AtePreset::SolidStateClassASingleEnded => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-42.0),
+                db_to_amp(-70.0),
+                db_to_amp(-85.0),
+                db_to_amp(-94.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    env_alpha: 0.0006,
+                    thermal_alpha: 0.0006,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -126.0,
+                    pink_db: -116.0,
+                    ..NoiseParams::default()
+                },
+                channel_mismatch: ChannelMismatch {
+                    gain_db_l: 0.01,
+                    gain_db_r: -0.01,
+                    phase_deg: 0.12,
+                    thd_variance: 0.01,
+                    crosstalk_db: -96.0,
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::SolidStateClassAPushPull => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-56.0),
+                db_to_amp(-72.0),
+                db_to_amp(-96.0),
+                db_to_amp(-102.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    thermal_alpha: 0.0008,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -132.0,
+                    pink_db: -126.0,
+                    ..NoiseParams::default()
+                },
+                channel_mismatch: ChannelMismatch {
+                    gain_db_l: 0.005,
+                    gain_db_r: -0.005,
+                    phase_deg: 0.06,
+                    thd_variance: 0.004,
+                    crosstalk_db: -102.0,
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::SolidStateClassAb => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-80.0),
+                db_to_amp(-52.0),
+                db_to_amp(-96.0),
+                db_to_amp(-54.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                crossover: CrossoverParams {
+                    enabled: true,
+                    inner_gain: 0.985,
+                    theta: 0.006,
+                    negative_inner_gain: 0.985,
+                    negative_theta: 0.006,
+                },
+                state_params: StateParams {
+                    thermal_alpha: 0.001,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -128.0,
+                    pink_db: -122.0,
+                    ..NoiseParams::default()
+                },
+                channel_mismatch: ChannelMismatch {
+                    gain_db_l: 0.008,
+                    gain_db_r: -0.008,
+                    phase_deg: 0.1,
+                    thd_variance: 0.01,
+                    crosstalk_db: -98.0,
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::SolidStateClassD => AteCustomParams {
+            poly_a: harmonics_to_poly(
+                db_to_amp(-110.0),
+                db_to_amp(-115.0),
+                db_to_amp(-125.0),
+                db_to_amp(-130.0),
+            ),
+            noise_params: NoiseParams {
+                thermal_db: -138.0,
+                pink_db: -138.0,
+                ..NoiseParams::default()
+            },
+            channel_mismatch: ChannelMismatch {
+                gain_db_l: 0.002,
+                gain_db_r: -0.002,
+                phase_deg: 0.02,
+                thd_variance: 0.002,
+                crosstalk_db: -110.0,
+            },
+            ..AteCustomParams::default()
+        },
         AtePreset::Hybrid => {
             let tube = preset_params(AtePreset::Tube);
             let tape = preset_params(AtePreset::Tape);

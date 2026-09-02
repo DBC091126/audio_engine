@@ -21,9 +21,9 @@ Batch 10: JavaFX GUI with JNA wrapper and batch processing.
 - DSD containers: DSF and DFF for packed 1-bit DSD streams
 - Resampler: libsamplerate state machine gated by 44.1k/48k family validation
 - DSD modulator: lowpass, zero-fill oversampling, 5th-order noise shaping, rayon blocks
-- ATE: presets, oversampling, nonlinear state models, noise/jitter, analyzer
+- ATE: tube/vinyl/hybrid plus solid-state A/AB/D presets, oversampling, nonlinear state models, noise/jitter, analyzer
 - FFI: `process_file` and `get_file_info` C ABI exports
-- GUI: JavaFX batch interface with drag/drop, config, ATE panel, progress, logs
+- GUI: JavaFX batch interface with drag/drop, config, ATE panel, before/after response curves, progress, logs
 
 ## Build
 

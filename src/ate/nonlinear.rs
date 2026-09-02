@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use super::config::CrossoverParams;
 use super::state_engine::AteState;
 
@@ -47,7 +45,7 @@ pub fn smoothstep(x: f32, edge0: f32, edge1: f32) -> f32 {
 
 pub fn apply_memory_polynomial(
     x: f32,
-    history: &VecDeque<f32>,
+    history: &[f32],
     coeffs: &[f32],
     k_max: usize,
     m_max: usize,
@@ -61,10 +59,8 @@ pub fn apply_memory_polynomial(
         for m in 0..=m_max {
             let sample = if m == 0 {
                 x
-            } else if m <= history.len() {
-                history[m - 1]
             } else {
-                0.0
+                history.get(m - 1).copied().unwrap_or(0.0)
             };
             let index = (k - 1) * (m_max + 1) + m;
             let Some(&coeff) = coeffs.get(index) else {
@@ -101,7 +97,7 @@ pub fn apply_nonlinear(
     ];
     poly[1] *= thermal_gain;
 
-    let mem = apply_memory_polynomial(x, &state.history, mem_poly, 5, 2);
+    let mem = apply_memory_polynomial(x, &[], mem_poly, 5, 2);
     let linear = x + (mem - x) * intensity.min(1.0);
     let shaped = polynomial(linear * flux_compression, &poly);
     let shaped = if intensity >= 1.0 {

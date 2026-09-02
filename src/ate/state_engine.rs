@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use super::config::StateParams;
 
 #[derive(Debug, Clone)]
@@ -9,7 +7,6 @@ pub struct AteState {
     pub flux: f32,
     pub thermal: f32,
     pub recovery: f32,
-    pub history: VecDeque<f32>,
 }
 
 impl Default for AteState {
@@ -26,7 +23,6 @@ impl AteState {
             flux: 0.0,
             thermal: 0.0,
             recovery: 0.0,
-            history: VecDeque::with_capacity(4),
         }
     }
 
@@ -38,10 +34,5 @@ impl AteState {
         self.thermal += params.thermal_alpha * (power - self.thermal);
         self.recovery += params.recovery_alpha * (x.abs() - self.recovery);
         self.recovery *= params.recovery_decay;
-
-        self.history.push_front(x);
-        if self.history.len() > 4 {
-            self.history.pop_back();
-        }
     }
 }

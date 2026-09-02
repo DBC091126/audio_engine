@@ -45,15 +45,33 @@ public final class ConversionSettings {
     }
 
     public enum AteStyle {
-        TUBE(0), VINYL(1), HYBRID(2);
+        TUBE(0, "胆机"),
+        VINYL(1, "黑胶"),
+        HYBRID(2, "混合胆味"),
+        A_CLASS_SE(3, "A类石机-单端"),
+        A_CLASS_PP(4, "A类石机-推挽"),
+        AB_CLASS(5, "AB类石机"),
+        D_CLASS(6, "高端D类"),
+        VINTAGE_SOLID_STATE(7, "老式AB/B石机");
         private final int code;
+        private final String label;
 
-        AteStyle(int code) {
+        AteStyle(int code, String label) {
             this.code = code;
+            this.label = label;
         }
 
         public int getCode() {
             return code;
+        }
+
+        public String label() {
+            return label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
         }
     }
 

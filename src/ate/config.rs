@@ -9,6 +9,10 @@ pub enum AtePreset {
     Vinyl,
     Tape,
     Hybrid,
+    SolidStateClassASingleEnded,
+    SolidStateClassAPushPull,
+    SolidStateClassAb,
+    SolidStateClassD,
     Custom,
 }
 

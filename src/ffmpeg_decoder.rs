@@ -11,7 +11,50 @@ use crate::decoder::AudioData;
 
 static FFMPEG_INIT: Once = Once::new();
 
+pub(crate) fn probe_sample_rate(path: &str) -> Result<u32, anyhow::Error> {
+    let mut init_error: Option<ffmpeg_next::Error> = None;
+    FFMPEG_INIT.call_once(|| {
+        if let Err(err) = ffmpeg_next::init() {
+            init_error = Some(err);
+        }
+    });
+    if let Some(err) = init_error {
+        return Err(err.into());
+    }
+
+    let context = format::input(path).with_context(|| format!("ffmpeg failed to open {path}"))?;
+    let stream = context
+        .streams()
+        .best(media::Type::Audio)
+        .ok_or_else(|| anyhow!("no audio stream in {path}"))?;
+    let decoder_context = codec::context::Context::from_parameters(stream.parameters())
+        .with_context(|| format!("ffmpeg could not create decoder context for {path}"))?;
+    let decoder = decoder_context
+        .decoder()
+        .audio()
+        .with_context(|| format!("ffmpeg audio decoder unavailable for {path}"))?;
+    let sample_rate = decoder.rate();
+    if sample_rate == 0 {
+        return Err(anyhow!("ffmpeg reported zero sample rate for {path}"));
+    }
+    Ok(sample_rate)
+}
+
 pub(crate) fn decode(path: &str) -> Result<AudioData, anyhow::Error> {
+    decode_with_limit(path, None)
+}
+
+pub(crate) fn decode_preview(
+    path: &str,
+    max_frames: usize,
+) -> Result<AudioData, anyhow::Error> {
+    decode_with_limit(path, Some(max_frames))
+}
+
+fn decode_with_limit(
+    path: &str,
+    max_frames: Option<usize>,
+) -> Result<AudioData, anyhow::Error> {
     let mut init_error: Option<ffmpeg_next::Error> = None;
     FFMPEG_INIT.call_once(|| {
         if let Err(err) = ffmpeg_next::init() {
@@ -80,8 +123,9 @@ pub(crate) fn decode(path: &str) -> Result<AudioData, anyhow::Error> {
     let mut samples: Vec<f32> = Vec::new();
     let mut decoded_frame = AudioFrame::empty();
     let mut resampled_frame = AudioFrame::empty();
+    let max_samples = max_frames.map(|frames| frames.saturating_mul(usize::from(channels)));
 
-    for (packet_stream, packet) in context.packets() {
+    'packets: for (packet_stream, packet) in context.packets() {
         if packet_stream.index() != stream_index {
             continue;
         }
@@ -93,18 +137,24 @@ pub(crate) fn decode(path: &str) -> Result<AudioData, anyhow::Error> {
             resampler
                 .run(&decoded_frame, &mut resampled_frame)
                 .with_context(|| format!("ffmpeg resample failed for {path}"))?;
-            append_resampled(&resampled_frame, channels, &mut samples)?;
+            if append_resampled(&resampled_frame, channels, max_samples, &mut samples)? {
+                break 'packets;
+            }
         }
     }
 
-    decoder
-        .send_eof()
-        .with_context(|| format!("ffmpeg send_eof failed for {path}"))?;
-    while decoder.receive_frame(&mut decoded_frame).is_ok() {
-        resampler
-            .run(&decoded_frame, &mut resampled_frame)
-            .with_context(|| format!("ffmpeg final resample failed for {path}"))?;
-        append_resampled(&resampled_frame, channels, &mut samples)?;
+    if max_frames.is_none() {
+        decoder
+            .send_eof()
+            .with_context(|| format!("ffmpeg send_eof failed for {path}"))?;
+        while decoder.receive_frame(&mut decoded_frame).is_ok() {
+            resampler
+                .run(&decoded_frame, &mut resampled_frame)
+                .with_context(|| format!("ffmpeg final resample failed for {path}"))?;
+            if append_resampled(&resampled_frame, channels, max_samples, &mut samples)? {
+                break;
+            }
+        }
     }
 
     if samples.is_empty() {
@@ -125,8 +175,9 @@ pub(crate) fn decode(path: &str) -> Result<AudioData, anyhow::Error> {
 fn append_resampled(
     frame: &AudioFrame,
     channels: u16,
+    max_samples: Option<usize>,
     output: &mut Vec<f32>,
-) -> Result<(), anyhow::Error> {
+) -> Result<bool, anyhow::Error> {
     let total_samples = frame
         .samples()
         .checked_mul(usize::from(channels))
@@ -143,8 +194,11 @@ fn append_resampled(
     }
 
     let floats = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const f32, total_samples) };
-    output.extend(floats.iter().map(|&sample| normalize(sample)));
-    Ok(())
+    let take = max_samples
+        .map(|max| max.saturating_sub(output.len()).min(floats.len()))
+        .unwrap_or(floats.len());
+    output.extend(floats[..take].iter().map(|&sample| normalize(sample)));
+    Ok(max_samples.is_some_and(|max| output.len() >= max))
 }
 
 fn normalize(sample: f32) -> f32 {

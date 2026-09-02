@@ -22,16 +22,18 @@ public final class AudioEngineService {
         ShortByReference channels = new ShortByReference();
         ShortByReference bits = new ShortByReference();
         DoubleByReference duration = new DoubleByReference();
-
-        int rc = library.get_file_info(path, sampleRate, channels, bits, duration);
-        if (rc != 0) {
-            throw new IOException("get_file_info failed with code " + rc);
-        }
-
         Memory buffer = new Memory(65536);
-        rc = library.get_file_metadata(path, buffer, 65536);
+
+        int rc = library.get_file_info_ex(
+                path,
+                sampleRate,
+                channels,
+                bits,
+                duration,
+                buffer,
+                65536);
         if (rc != 0) {
-            throw new IOException("get_file_metadata failed with code " + rc);
+            throw new IOException("get_file_info_ex failed with code " + rc);
         }
         Map<String, String> metadata = parseMetadata(buffer.getString(0, StandardCharsets.UTF_8.name()));
 
@@ -58,6 +60,22 @@ public final class AudioEngineService {
             throw new IOException("process_file failed with code " + rc);
         }
         return rc;
+    }
+
+    public ResponseCurve readAteResponseCurve(String input, ConversionSettings settings)
+            throws IOException {
+        Memory buffer = new Memory(1 << 20);
+        int rc = library.get_ate_response_curve(
+                input,
+                (byte) (settings.isAteEnabled() ? 1 : 0),
+                (byte) settings.getAteStyle().getCode(),
+                (float) settings.getAteIntensity(),
+                buffer,
+                buffer.size());
+        if (rc != 0) {
+            throw new IOException("get_ate_response_curve failed with code " + rc);
+        }
+        return ResponseCurve.parse(buffer.getString(0, StandardCharsets.UTF_8.name()));
     }
 
     private static Map<String, String> parseMetadata(String text) {

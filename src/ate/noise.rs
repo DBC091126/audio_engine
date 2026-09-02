@@ -46,38 +46,67 @@ impl NoiseSimulator {
     }
 
     pub fn add_noise(&mut self, samples: &mut [f32], params: &NoiseParams, sample_rate: f32) {
+        const ACTIVE_FLOOR: f32 = -140.0;
         let thermal = db_to_amp(params.thermal_db);
         let pink = db_to_amp(params.pink_db);
         let hum = db_to_amp(params.hum_db);
         let vinyl = db_to_amp(params.vinyl_db);
         let crackle = db_to_amp(params.crackle_db);
         let tape = db_to_amp(params.tape_db);
+        let do_thermal = params.thermal_db > ACTIVE_FLOOR;
+        let do_pink = params.pink_db > ACTIVE_FLOOR;
+        let do_hum = params.hum_db > ACTIVE_FLOOR;
+        let do_vinyl = params.vinyl_db > ACTIVE_FLOOR;
+        let do_crackle = params.crackle_db > ACTIVE_FLOOR;
+        let do_tape = params.tape_db > ACTIVE_FLOOR;
+        if !(do_thermal || do_pink || do_hum || do_vinyl || do_crackle || do_tape) {
+            return;
+        }
 
         for (i, sample) in samples.iter_mut().enumerate() {
-            let white = self.rng.gaussian();
-            self.pink_state += 0.02 * white;
-            self.pink_state *= 0.98;
-            self.tape_state += 0.08 * white;
-            self.tape_state *= 0.96;
-            let tape_noise = white - self.tape_state;
-
-            let t = i as f32 / sample_rate;
-            let phase = 2.0 * std::f32::consts::PI * params.hum_hz * t;
-            let hum_noise = phase.sin() + 0.5 * (2.0 * phase).sin() + 0.25 * (3.0 * phase).sin();
-            let vinyl_noise =
-                self.pink_state * 0.5 + 0.4 * (2.0 * std::f32::consts::PI * 28.0 * t).sin();
-            let crackle_noise = if self.rng.next_f32() < 0.000_02 {
-                self.rng.gaussian().signum() * 0.8
+            let white = if do_thermal || do_pink || do_tape || do_crackle {
+                self.rng.gaussian()
             } else {
                 0.0
             };
 
-            *sample += white * thermal
-                + self.pink_state * pink
-                + hum_noise * hum
-                + vinyl_noise * vinyl
-                + crackle_noise * crackle
-                + tape_noise * tape;
+            if do_pink {
+                self.pink_state += 0.02 * white;
+                self.pink_state *= 0.98;
+            }
+            if do_tape {
+                self.tape_state += 0.08 * white;
+                self.tape_state *= 0.96;
+            }
+
+            let mut noise = 0.0f32;
+            if do_thermal {
+                noise += white * thermal;
+            }
+            if do_pink {
+                noise += self.pink_state * pink;
+            }
+            if do_tape {
+                noise += (white - self.tape_state) * tape;
+            }
+            if do_hum {
+                let t = i as f32 / sample_rate;
+                let phase = 2.0 * std::f32::consts::PI * params.hum_hz * t;
+                noise += (phase.sin()
+                    + 0.5 * (2.0 * phase).sin()
+                    + 0.25 * (3.0 * phase).sin())
+                    * hum;
+            }
+            if do_vinyl {
+                let t = i as f32 / sample_rate;
+                noise += (self.pink_state * 0.5
+                    + 0.4 * (2.0 * std::f32::consts::PI * 28.0 * t).sin())
+                    * vinyl;
+            }
+            if do_crackle && self.rng.next_f32() < 0.000_02 {
+                noise += self.rng.gaussian().signum() * 0.8 * crackle;
+            }
+            *sample += noise;
         }
     }
 }

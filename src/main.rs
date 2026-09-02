@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
 use std::path::PathBuf;
 
 use audio_engine::ate::{
@@ -9,7 +10,7 @@ use audio_engine::decode_file;
 use audio_engine::dsd::{encode_dff, encode_dsf, DsdStream};
 use audio_engine::dsd_modulator::{pcm_to_dsd, pcm_to_dsd_with_family, DsdMode};
 use audio_engine::encoder::{encode_pcm, PcmFormat};
-use audio_engine::ffi::{get_file_info, process_file};
+use audio_engine::ffi::{get_ate_response_curve, get_file_info, process_file};
 use audio_engine::pipeline::{run_dsd_pipeline, run_pcm_pipeline};
 use audio_engine::resampler::{
     create_src, destroy_src, get_recommended_rates, process_src, validate_rate_family,
@@ -96,6 +97,52 @@ fn run_ffi_test() -> anyhow::Result<()> {
         ));
     }
 
+    for ate_style in 3..=7u8 {
+        let out = CString::new(format!("/tmp/ffi_ate_style_{ate_style}.wav"))
+            .map_err(anyhow::Error::msg)?;
+        let rc = process_file(
+            input.as_ptr(),
+            out.as_ptr(),
+            176_400,
+            24,
+            0,
+            0,
+            1,
+            ate_style,
+            0.5,
+        );
+        if rc != 0 {
+            return Err(anyhow::anyhow!(
+                "process_file solid-state ATE style {ate_style} failed with code {rc}"
+            ));
+        }
+        println!("FFI solid-state ATE style {ate_style}: WAV ok");
+    }
+
+    let mut curve_buffer = vec![0u8; 65_536];
+    let rc = get_ate_response_curve(
+        input.as_ptr(),
+        1,
+        3,
+        0.5,
+        curve_buffer.as_mut_ptr() as *mut c_char,
+        curve_buffer.len(),
+    );
+    if rc != 0 {
+        return Err(anyhow::anyhow!(
+            "get_ate_response_curve failed with code {rc}"
+        ));
+    }
+    let curve = unsafe { CStr::from_ptr(curve_buffer.as_ptr() as *const c_char) }
+        .to_string_lossy()
+        .to_string();
+    let mut lines = curve.lines();
+    let first = lines.next().unwrap_or_default();
+    println!(
+        "FFI ATE response curve: {} points, first={first}",
+        curve.lines().count()
+    );
+
     let mut sample_rate = 0u32;
     let mut channels = 0u16;
     let mut bits = 0u16;
@@ -144,6 +191,40 @@ fn run_ate_test() -> anyhow::Result<()> {
     println!("  Fund : {:.1} dB", result.fingerprint[0]);
     println!("  H2/H3: {:.1} dB / {:.1} dB", result.h2_db, result.h3_db);
     println!("  H4/H5: {:.1} dB / {:.1} dB", result.h4_db, result.h5_db);
+
+    let solid_state_presets = [
+        AtePreset::SolidStateClassASingleEnded,
+        AtePreset::SolidStateClassAPushPull,
+        AtePreset::SolidStateClassAb,
+        AtePreset::SolidStateClassD,
+        AtePreset::VintageSolidState,
+    ];
+    for preset in solid_state_presets {
+        let mut preset_output = vec![0.0f32; input.len()];
+        let preset_config =
+            make_config(preset, OversamplingMode::X4, 0.5, 42, true);
+        process_ate(
+            &input,
+            &mut preset_output,
+            &preset_config,
+            44_100,
+            44_100,
+            None,
+        );
+        let preset_left: Vec<f32> = preset_output.iter().step_by(2).copied().collect();
+        let preset_result =
+            AteAnalyzer::analyze_harmonics(&preset_left, 44_100, 1000.0);
+        println!("ATE {preset:?} harmonic test:");
+        println!("  THD  : {:.3}%", preset_result.thd_percent);
+        println!(
+            "  H2/H3: {:.1} dB / {:.1} dB",
+            preset_result.h2_db, preset_result.h3_db
+        );
+        println!(
+            "  H4/H5: {:.1} dB / {:.1} dB",
+            preset_result.h4_db, preset_result.h5_db
+        );
+    }
 
     let identity_config = AteConfig {
         enable: false,

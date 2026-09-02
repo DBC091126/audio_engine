@@ -3,8 +3,11 @@ use std::os::raw::c_char;
 
 use anyhow::{anyhow, Error};
 
-use crate::ate::{process_ate, AteConfig, AtePreset, OversamplingMode};
+use crate::ate::{
+    analyze_spectrum_mono, process_ate, AteConfig, AtePreset, OversamplingMode,
+};
 use crate::decode_file;
+use crate::decoder::{decode_preview_seconds, probe_file, AudioData};
 use crate::dsd::{encode_dff, encode_dsf};
 use crate::dsd_modulator::pcm_to_dsd;
 use crate::encoder::{PcmFormat, PcmStreamWriter};
@@ -91,7 +94,7 @@ pub extern "C" fn get_file_info(
         }
     };
 
-    match decode_file(&path) {
+    match probe_file(&path) {
         Ok(audio) => {
             unsafe {
                 if !out_sample_rate.is_null() {
@@ -120,6 +123,55 @@ pub extern "C" fn get_file_info(
     }
 }
 
+/// Return stream information and metadata from one header probe.
+#[unsafe(no_mangle)]
+pub extern "C" fn get_file_info_ex(
+    path: *const c_char,
+    out_sample_rate: *mut u32,
+    out_channels: *mut u16,
+    out_bits: *mut u16,
+    out_duration: *mut f64,
+    buffer: *mut c_char,
+    buffer_size: usize,
+) -> i32 {
+    let path = match cstr_to_string(path) {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("[FFI ERROR] {message}");
+            return -1;
+        }
+    };
+
+    match probe_file(&path) {
+        Ok(audio) => {
+            unsafe {
+                if !out_sample_rate.is_null() {
+                    *out_sample_rate = audio.sample_rate;
+                }
+                if !out_channels.is_null() {
+                    *out_channels = audio.channels;
+                }
+                if !out_bits.is_null() {
+                    *out_bits = audio.bits_per_sample;
+                }
+                if !out_duration.is_null() {
+                    *out_duration = if audio.sample_rate == 0 {
+                        0.0
+                    } else {
+                        audio.total_frames as f64 / f64::from(audio.sample_rate)
+                    };
+                }
+            }
+            write_metadata(&audio, buffer, buffer_size);
+            0
+        }
+        Err(error) => {
+            eprintln!("[FFI ERROR] {error:#}");
+            -1
+        }
+    }
+}
+
 /// Return container metadata as `key<TAB>value\n` lines for the Java GUI.
 #[unsafe(no_mangle)]
 pub extern "C" fn get_file_metadata(
@@ -135,7 +187,7 @@ pub extern "C" fn get_file_metadata(
         }
     };
 
-    let audio = match decode_file(&path) {
+    let audio = match probe_file(&path) {
         Ok(audio) => audio,
         Err(error) => {
             eprintln!("[FFI ERROR] {error:#}");
@@ -143,6 +195,120 @@ pub extern "C" fn get_file_metadata(
         }
     };
 
+    write_metadata(&audio, buffer, buffer_size);
+    0
+}
+
+/// Return a log-frequency response comparison for the first few seconds of a file.
+#[unsafe(no_mangle)]
+pub extern "C" fn get_ate_response_curve(
+    input_path: *const c_char,
+    ate_enable: u8,
+    ate_style: u8,
+    ate_intensity: f32,
+    buffer: *mut c_char,
+    buffer_size: usize,
+) -> i32 {
+    let input = match cstr_to_string(input_path) {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("[FFI ERROR] {message}");
+            return -1;
+        }
+    };
+
+    let curve = match build_ate_response_curve(&input, ate_enable, ate_style, ate_intensity) {
+        Ok(curve) => curve,
+        Err(error) => {
+            eprintln!("[FFI ERROR] {error:#}");
+            return -1;
+        }
+    };
+    write_text(&curve, buffer, buffer_size);
+    0
+}
+
+fn build_ate_response_curve(
+    input: &str,
+    ate_enable: u8,
+    ate_style: u8,
+    ate_intensity: f32,
+) -> Result<String, Error> {
+    let audio = decode_preview_seconds(input, 4.0)?;
+    if !matches!(audio.channels, 1 | 2) {
+        return Err(anyhow!(
+            "ATE response comparison currently supports mono or stereo, got {} channels",
+            audio.channels
+        ));
+    }
+    if audio.sample_rate == 0 {
+        return Err(anyhow!("input sample rate is zero"));
+    }
+
+    let channel_count = usize::from(audio.channels);
+    let total_frames = audio.samples.len() / channel_count;
+    let frames = total_frames;
+    if frames < audio.sample_rate as usize / 10 {
+        return Err(anyhow!("input is too short for response comparison"));
+    }
+
+    let selected = &audio.samples[..frames * channel_count];
+    let stereo: Vec<f32> = if channel_count == 1 {
+        selected
+            .iter()
+            .flat_map(|&sample| [sample, sample])
+            .collect()
+    } else {
+        selected.to_vec()
+    };
+
+    let mut processed = vec![0.0f32; stereo.len()];
+    if ate_enable != 0 {
+        let base = family_base(audio.sample_rate)?;
+        let config = ate_config(ate_enable, ate_style, ate_intensity, audio.sample_rate);
+        process_ate(&stereo, &mut processed, &config, audio.sample_rate, base, None);
+    } else {
+        processed.copy_from_slice(&stereo);
+    }
+
+    let before = to_mono(&stereo);
+    let after = to_mono(&processed);
+    let before_spectrum = analyze_spectrum_mono(&before, audio.sample_rate, 96);
+    let after_spectrum = analyze_spectrum_mono(&after, audio.sample_rate, 96);
+
+    let mut output = String::new();
+    for point in 0..before_spectrum.len().min(after_spectrum.len()) {
+        output.push_str(&format!(
+            "{:.2}\t{:.1}\t{:.1}\n",
+            before_spectrum[point].freq_hz,
+            before_spectrum[point].level_db,
+            after_spectrum[point].level_db
+        ));
+    }
+    Ok(output)
+}
+
+fn to_mono(samples: &[f32]) -> Vec<f32> {
+    samples
+        .chunks_exact(2)
+        .map(|frame| (frame[0] + frame[1]) * 0.5)
+        .collect()
+}
+
+fn write_text(text: &str, buffer: *mut c_char, buffer_size: usize) {
+    if buffer.is_null() || buffer_size == 0 {
+        return;
+    }
+    let bytes = text.as_bytes();
+    let copy_len = bytes.len().min(buffer_size - 1);
+    unsafe {
+        let dest = std::slice::from_raw_parts_mut(buffer as *mut u8, buffer_size);
+        dest[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        dest[copy_len] = 0;
+    }
+}
+
+fn write_metadata(audio: &AudioData, buffer: *mut c_char, buffer_size: usize) {
     let mut bytes = Vec::new();
     let mut keys: Vec<&String> = audio.metadata.keys().collect();
     keys.sort();
@@ -155,7 +321,7 @@ pub extern "C" fn get_file_metadata(
     }
 
     if buffer.is_null() || buffer_size == 0 {
-        return 0;
+        return;
     }
     let copy_len = bytes.len().min(buffer_size - 1);
     unsafe {
@@ -163,7 +329,6 @@ pub extern "C" fn get_file_metadata(
         dest[..copy_len].copy_from_slice(&bytes[..copy_len]);
         dest[copy_len] = 0;
     }
-    0
 }
 
 fn process_pcm_file(
@@ -206,7 +371,7 @@ fn process_pcm_file(
             return Err(anyhow!("ATE currently requires stereo input"));
         }
         let base = family_base(target_rate)?;
-        let config = ate_config(ate_enable, ate_style, ate_intensity);
+        let config = ate_config(ate_enable, ate_style, ate_intensity, target_rate);
         let mut processed = vec![0.0f32; pcm.len()];
         process_ate(&pcm, &mut processed, &config, target_rate, base, None);
         pcm = processed;
@@ -255,7 +420,7 @@ fn process_dsd_file(
             return Err(anyhow!("ATE currently requires stereo input"));
         }
         let base = family_base(working_rate)?;
-        let config = ate_config(ate_enable, ate_style, ate_intensity);
+        let config = ate_config(ate_enable, ate_style, ate_intensity, working_rate);
         let mut processed = vec![0.0f32; pcm.len()];
         process_ate(&pcm, &mut processed, &config, working_rate, base, None);
         pcm = processed;
@@ -269,20 +434,36 @@ fn process_dsd_file(
     }
 }
 
-fn ate_config(enable: u8, style: u8, intensity: f32) -> AteConfig {
+fn ate_config(enable: u8, style: u8, intensity: f32, sample_rate: u32) -> AteConfig {
     let preset = match style {
         0 => AtePreset::Tube,
         1 => AtePreset::Vinyl,
+        2 => AtePreset::Hybrid,
+        3 => AtePreset::SolidStateClassASingleEnded,
+        4 => AtePreset::SolidStateClassAPushPull,
+        5 => AtePreset::SolidStateClassAb,
+        6 => AtePreset::SolidStateClassD,
+        7 => AtePreset::VintageSolidState,
         _ => AtePreset::Hybrid,
     };
     AteConfig {
         enable: enable != 0,
         preset,
         intensity: intensity.clamp(0.0, 1.0),
-        oversampling: OversamplingMode::X4,
+        oversampling: oversampling_for_rate(sample_rate),
         stereo_variance_seed: 0x4154_455f_4656,
         enable_analyzer: false,
         custom_params: None,
+    }
+}
+
+fn oversampling_for_rate(sample_rate: u32) -> OversamplingMode {
+    if sample_rate >= 176_400 {
+        OversamplingMode::None
+    } else if sample_rate >= 88_200 {
+        OversamplingMode::X2
+    } else {
+        OversamplingMode::X4
     }
 }
 

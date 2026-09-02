@@ -14,6 +14,8 @@ pub fn apply_channel_variance(
     let crosstalk = super::noise::db_to_amp(params.crosstalk_db);
     let l_gain = super::noise::db_to_amp(l_gain_db);
     let r_gain = super::noise::db_to_amp(r_gain_db);
+    let cos_phase = phase_rad.cos();
+    let sin_phase = phase_rad.sin();
 
     for i in 0..left.len() {
         let l = left[i] * l_gain + right[i] * crosstalk;
@@ -21,7 +23,7 @@ pub fn apply_channel_variance(
         left[i] = l;
         right[i] = r;
         if i % 2 == 1 {
-            right[i] = right[i] * phase_rad.cos() - l * phase_rad.sin();
+            right[i] = right[i] * cos_phase - l * sin_phase;
         }
     }
 }

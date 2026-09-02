@@ -11,6 +11,12 @@ pub struct AnalyzerResult {
     pub fingerprint: [f32; 8],
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SpectrumPoint {
+    pub freq_hz: f32,
+    pub level_db: f32,
+}
+
 pub struct AteAnalyzer;
 
 impl AteAnalyzer {
@@ -120,6 +126,146 @@ pub fn db_from_amp(amp: f32) -> f32 {
     }
 }
 
+pub fn analyze_spectrum_mono(samples: &[f32], sample_rate: u32, points: usize) -> Vec<SpectrumPoint> {
+    let points = points.max(8).min(256);
+    if samples.is_empty() || sample_rate == 0 {
+        return Vec::new();
+    }
+
+    let nyquist = sample_rate as f32 * 0.5;
+    let max_hz = 20_000.0_f32.min(nyquist * 0.98).max(20.0);
+    if max_hz <= 20.0 {
+        return Vec::new();
+    }
+
+    let n = next_pow2(samples.len().max(4096));
+    let mut re = vec![0.0f64; n];
+    let mut im = vec![0.0f64; n];
+    for (i, &sample) in samples.iter().enumerate().take(samples.len().min(n)) {
+        let position = if n == 1 { 0.0 } else {
+            std::f64::consts::TAU * i as f64 / (n - 1) as f64
+        };
+        re[i] = f64::from(sample) * 0.5 * (1.0 - position.cos());
+    }
+    fft(&mut re, &mut im);
+
+    let centers = log_centers(20.0, max_hz, points);
+    let mut levels = Vec::with_capacity(points);
+    let scale = (n as f64).powi(2);
+    let bin_width = sample_rate as f64 / n as f64;
+    let usable = n / 2 + 1;
+
+    for point in 0..points {
+        let center = f64::from(centers[point]);
+        let lower = if point == 0 {
+            f64::from(20.0_f32.min(max_hz))
+        } else {
+            (f64::from(centers[point - 1]) * center).sqrt()
+        };
+        let upper = if point + 1 == points {
+            f64::from(max_hz)
+        } else {
+            (center * f64::from(centers[point + 1])).sqrt()
+        };
+
+        let first_bin = (lower / bin_width).floor() as usize;
+        let last_bin = (upper / bin_width).ceil() as usize;
+        let mut sum = 0.0f64;
+        let mut count = 0usize;
+        for bin in first_bin..=last_bin.min(usable.saturating_sub(1)) {
+            let freq = bin as f64 * bin_width;
+            if freq < lower || freq >= upper {
+                continue;
+            }
+            let power = (re[bin] * re[bin] + im[bin] * im[bin]) * 2.0 / scale;
+            sum += power;
+            count += 1;
+        }
+        let rms = if count == 0 {
+            0.0
+        } else {
+            (sum / count as f64).sqrt()
+        };
+        levels.push(SpectrumPoint {
+            freq_hz: centers[point],
+            level_db: db_from_amp(rms.max(1.0e-14) as f32),
+        });
+    }
+    levels
+}
+
+fn log_centers(min_hz: f32, max_hz: f32, points: usize) -> Vec<f32> {
+    let min_log = min_hz.log10();
+    let max_log = max_hz.log10();
+    (0..points)
+        .map(|i| {
+            let t = i as f32 / (points - 1) as f32;
+            10.0f32.powf(min_log + (max_log - min_log) * t)
+        })
+        .collect()
+}
+
+fn next_pow2(mut value: usize) -> usize {
+    value = value.saturating_sub(1);
+    value |= value >> 1;
+    value |= value >> 2;
+    value |= value >> 4;
+    value |= value >> 8;
+    value |= value >> 16;
+    value |= value >> 32;
+    value.saturating_add(1)
+}
+
+fn fft(re: &mut [f64], im: &mut [f64]) {
+    let n = re.len();
+    if n < 2 || !n.is_power_of_two() {
+        return;
+    }
+
+    let mut j = 0usize;
+    for i in 1..n {
+        let mut bit = n >> 1;
+        while j & bit != 0 {
+            j ^= bit;
+            bit >>= 1;
+        }
+        j ^= bit;
+        if i < j {
+            re.swap(i, j);
+            im.swap(i, j);
+        }
+    }
+
+    let mut len = 2usize;
+    while len <= n {
+        let angle = -std::f64::consts::TAU / len as f64;
+        let wlen_re = angle.cos();
+        let wlen_im = angle.sin();
+        let half = len / 2;
+        for start in (0..n).step_by(len) {
+            let mut w_re = 1.0f64;
+            let mut w_im = 0.0f64;
+            for offset in 0..half {
+                let a = start + offset;
+                let b = a + half;
+                let u_re = re[a];
+                let u_im = im[a];
+                let v_re = re[b] * w_re - im[b] * w_im;
+                let v_im = re[b] * w_im + im[b] * w_re;
+                re[a] = u_re + v_re;
+                im[a] = u_im + v_im;
+                re[b] = u_re - v_re;
+                im[b] = u_im - v_im;
+                let next_re = w_re * wlen_re - w_im * wlen_im;
+                let next_im = w_re * wlen_im + w_im * wlen_re;
+                w_re = next_re;
+                w_im = next_im;
+            }
+        }
+        len <<= 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,5 +281,31 @@ mod tests {
             .collect();
         let amp = goertzel(&samples, 1000.0, sample_rate);
         assert!((amp - 1.0).abs() < 0.05, "amp={amp}");
+    }
+
+    #[test]
+    fn spectrum_reports_low_and_high_band_power() {
+        let sample_rate = 44_100u32;
+        let samples: Vec<f32> = (0..sample_rate as usize)
+            .map(|i| {
+                let t = i as f32 / sample_rate as f32;
+                (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5
+                    + (2.0 * std::f32::consts::PI * 9_000.0 * t).sin() * 0.3
+            })
+            .collect();
+        let spectrum = analyze_spectrum_mono(&samples, sample_rate, 96);
+        assert!(spectrum.len() == 96);
+        let low = spectrum
+            .iter()
+            .find(|point| (point.freq_hz - 440.0).abs() < 120.0)
+            .map(|point| point.level_db)
+            .unwrap_or(-200.0);
+        let high = spectrum
+            .iter()
+            .find(|point| (point.freq_hz - 9_000.0).abs() < 1_000.0)
+            .map(|point| point.level_db)
+            .unwrap_or(-200.0);
+        assert!(low > -75.0, "low={low}");
+        assert!(high > -95.0, "high={high}");
     }
 }

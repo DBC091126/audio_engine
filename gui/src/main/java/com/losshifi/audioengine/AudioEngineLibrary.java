@@ -31,7 +31,24 @@ public interface AudioEngineLibrary extends Library {
             ShortByReference bits,
             DoubleByReference duration);
 
+    int get_file_info_ex(
+            String path,
+            IntByReference sampleRate,
+            ShortByReference channels,
+            ShortByReference bits,
+            DoubleByReference duration,
+            Pointer buffer,
+            long bufferSize);
+
     int get_file_metadata(String path, Pointer buffer, long bufferSize);
+
+    int get_ate_response_curve(
+            String inputPath,
+            byte ateEnable,
+            byte ateStyle,
+            float ateIntensity,
+            Pointer buffer,
+            long bufferSize);
 
     static AudioEngineLibrary load() {
         String configured = System.getProperty("audio_engine.library.path");

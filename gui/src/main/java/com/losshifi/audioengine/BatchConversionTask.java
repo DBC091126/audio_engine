@@ -44,6 +44,8 @@ public final class BatchConversionTask extends Task<Void> {
             Platform.runLater(() -> item.setStatus("处理中"));
             updateProgress(Math.max(0.01, (double) done / total), 1.0);
 
+            AtomicBoolean stop = null;
+            Thread monitor = null;
             try {
                 Path input = item.getInput();
                 String output = deriveOutput(input, outputDir, settings);
@@ -53,9 +55,22 @@ public final class BatchConversionTask extends Task<Void> {
                         : service.readInfo(input.toString());
                 item.setInfo(info);
 
+                if (settings.getMode() == ConversionSettings.OutputMode.PCM) {
+                    int resolvedRate = compatiblePcmRate(info, settings);
+                    if (resolvedRate != settings.getPcmRate()) {
+                        settings.setPcmRate(resolvedRate);
+                        logSink.accept("目标采样率调整为 " + resolvedRate
+                                + " Hz（" + familyLabel(info) + "）");
+                    }
+                }
+
                 long expectedBytes = estimateBytes(info, settings);
-                AtomicBoolean stop = new AtomicBoolean(false);
-                Thread monitor = new Thread(() -> monitorOutput(output, expectedBytes, item, stop));
+                AtomicBoolean threadStop = new AtomicBoolean(false);
+                stop = threadStop;
+                int itemIndex = done;
+                Thread localMonitor = new Thread(() ->
+                        monitorOutput(output, expectedBytes, item, itemIndex, total, threadStop));
+                monitor = localMonitor;
                 monitor.setDaemon(true);
                 monitor.start();
 
@@ -69,8 +84,6 @@ public final class BatchConversionTask extends Task<Void> {
                     throw new InterruptedException("cancelled after native call");
                 }
 
-                stop.set(true);
-                monitor.interrupt();
                 Platform.runLater(() -> {
                     item.setProgress(1.0);
                     item.setStatus("完成");
@@ -84,6 +97,13 @@ public final class BatchConversionTask extends Task<Void> {
                 });
                 logSink.accept("失败: " + item.getFileName() + " - "
                         + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+            } finally {
+                if (stop != null) {
+                    stop.set(true);
+                }
+                if (monitor != null) {
+                    monitor.interrupt();
+                }
             }
 
             done++;
@@ -93,7 +113,14 @@ public final class BatchConversionTask extends Task<Void> {
         return null;
     }
 
-    private void monitorOutput(String output, long expectedBytes, BatchItem item, AtomicBoolean stop) {
+    private void monitorOutput(
+            String output,
+            long expectedBytes,
+            BatchItem item,
+            int itemIndex,
+            int total,
+            AtomicBoolean stop) {
+        boolean statusSet = false;
         while (!stop.get() && !Thread.currentThread().isInterrupted()) {
             try {
                 Path outputPath = Path.of(output);
@@ -102,6 +129,11 @@ public final class BatchConversionTask extends Task<Void> {
                         ? Math.min(0.02 + 0.95 * size / (double) expectedBytes, 0.97)
                         : 0.02;
                 Platform.runLater(() -> item.setProgress(progress));
+                updateProgress((itemIndex + progress) / Math.max(1, total), 1.0);
+                if (size > 0 && !statusSet) {
+                    statusSet = true;
+                    Platform.runLater(() -> item.setStatus("写入中"));
+                }
             } catch (IOException ignored) {
                 // The output file may not exist until the encoder starts.
             }
@@ -142,5 +174,38 @@ public final class BatchConversionTask extends Task<Void> {
             bytesPerSecond = dsdRate * info.getChannels() / 8.0;
         }
         return Math.max(4096L, (long) (duration * bytesPerSecond) + 4096L);
+    }
+
+    private static int compatiblePcmRate(AudioInfo info, ConversionSettings settings) {
+        int requestedRate = settings.getPcmRate();
+        boolean flac = settings.getPcmFormat() == ConversionSettings.PcmFormat.FLAC;
+        if (info.getSampleRate() <= 0) {
+            return flac ? Math.min(requestedRate, 96000) : requestedRate;
+        }
+        boolean source441 = info.is44100Family();
+        boolean source480 = info.is48000Family();
+        boolean requested441 = requestedRate % 44100 == 0;
+        boolean requested480 = requestedRate % 48000 == 0;
+        boolean familyMatches = (source441 && requested441) || (source480 && requested480);
+        if (familyMatches && (!flac || requestedRate <= 96000)) {
+            return requestedRate;
+        }
+        if (source441) {
+            return flac ? 88200 : 176400;
+        }
+        if (source480) {
+            return flac ? 96000 : 192000;
+        }
+        return flac ? Math.min(requestedRate, 96000) : requestedRate;
+    }
+
+    private static String familyLabel(AudioInfo info) {
+        if (info.is44100Family()) {
+            return "44.1k 家族";
+        }
+        if (info.is48000Family()) {
+            return "48k 家族";
+        }
+        return info.getSampleRate() + " Hz";
     }
 }

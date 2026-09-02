@@ -27,6 +27,8 @@ public final class FfiSmoke {
             settings.setPcmFormat(ConversionSettings.PcmFormat.WAV);
             service.convert(args[0], args[1], settings);
             System.out.println("converted=" + args[1]);
+            ResponseCurve curve = service.readAteResponseCurve(args[0], settings);
+            System.out.println("response_curve_points=" + curve.points().size());
         }
     }
 }
