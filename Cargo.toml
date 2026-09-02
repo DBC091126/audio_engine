@@ -12,9 +12,9 @@ crate-type = ["cdylib", "rlib"]
 symphonia = { version = "0.5", features = ["all"] }
 # `symphonia-bundle-opus = "0.5"` is not published on crates.io; Opus is
 # handled by the FFmpeg fallback decoder instead.
-# Use the FFmpeg-next major that matches the system FFmpeg API. ffmpeg-next 6.1
-# cannot bind against FFmpeg 8+ (headers such as avfft.h are gone).
-ffmpeg-next = "8.0"
+# Use the FFmpeg-next major that matches the current system FFmpeg API. ffmpeg-next 8.1
+# cannot bind against FFmpeg 9 (AVCodec layout and frame side data enums changed).
+ffmpeg-next = "9.0"
 anyhow = "1.0"
 hound = "3.5"
 flacenc = "0.4"

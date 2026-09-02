@@ -120,6 +120,7 @@ jobs:
           CC: gcc
           CXX: g++
           AR: ar
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
           export PATH="/c/Users/runneradmin/.cargo/bin:/mingw64/bin:/usr/bin:$PATH"
           export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
