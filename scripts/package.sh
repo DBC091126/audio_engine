@@ -53,7 +53,9 @@ else
 fi
 
 cd "$ROOT/gui"
-"$MVN" -q -DskipTests package -Daudio.engine.native.dir="$NATIVE_DIR"
+"$MVN" -q -DskipTests package \
+  -Djavafx.version="${JAVAFX_VERSION:-21.0.4}" \
+  -Daudio.engine.native.dir="$NATIVE_DIR"
 
 DIST="$ROOT/gui/target/audio-engine-gui-0.1.0-dist"
 OUT="$ROOT/dist"
@@ -70,12 +72,18 @@ if [ -z "$PACKAGE_TYPE" ]; then
   esac
 fi
 
+if [ "$OS" = "Darwin" ]; then
+  APP_VERSION="${APP_VERSION:-1.0.0}"
+else
+  APP_VERSION="${APP_VERSION:-0.1.0}"
+fi
+
 JPACKAGE_ARGS=(
   --type "$PACKAGE_TYPE"
   --input "$DIST"
   --dest "$OUT"
   --name "AudioEngine"
-  --app-version "0.1.0"
+  --app-version "$APP_VERSION"
   --main-jar "audio-engine-gui-0.1.0.jar"
   --main-class "com.losshifi.audioengine.Main"
   --module-path "$DIST"
