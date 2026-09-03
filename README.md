@@ -1,148 +1,249 @@
-# audio_engine
+# Audio Engine
 
-Batch 1: Rust universal decoder.
-Batch 2: Rust PCM encoder.
-Batch 3: Rust DSD container encoder (DSF + DFF).
-Batch 4: Rust libsamplerate resampler with family validation.
-Batch 5: Rust PCM-to-DSD modulator with family firewall.
-Batch 6: PCM command-line pipeline (decode -> SRC -> encode).
-Batch 7: DSD command-line pipeline (decode -> SRC -> DSD modulation -> DSF/DFF).
-Batch 8: ATE analog texture engine (optional post-processing).
-Batch 9: Unified FFI entry for Java/JNA.
-Batch 10: JavaFX GUI with JNA wrapper and batch processing.
+Cross-platform high-resolution audio conversion and analog tone processing.
 
-## Scope
+Current version: **1.1.0**
 
-- Inputs: WAV / FLAC / MP3 / OGG Vorbis / Opus / AAC(M4A)
-- Output: interleaved `Vec<f32>`, original sample rate, channel count, frame count, and metadata
-- Primary decoder: Symphonia
-- Fallback decoder: FFmpeg (used for Opus and AAC/M4A; also used when Symphonia rejects a file)
-- Encoder: WAV (16/24-bit) and FLAC (16/24-bit) with hard clamp, TPDF dither, and metadata
-- DSD containers: DSF and DFF for packed 1-bit DSD streams
-- Resampler: libsamplerate state machine gated by 44.1k/48k family validation
-- DSD modulator: lowpass, zero-fill oversampling, 5th-order noise shaping, rayon blocks
-- ATE: tube/vinyl/hybrid plus solid-state A/AB/D presets, oversampling, nonlinear state models, noise/jitter, analyzer
-- FFI: `process_file` and `get_file_info` C ABI exports
-- GUI: JavaFX batch interface with drag/drop, config, ATE panel, before/after response curves, progress, logs
+The engine decodes common compressed and lossless formats, resamples with the
+high-quality `SRC_SINC_BEST_QUALITY` algorithm, converts PCM to DSD, and applies
+the ATE analog texture engine. It ships as a Rust core with a JavaFX GUI.
 
-## Build
+## Highlights
+
+- Decode WAV, FLAC, MP3, OGG Vorbis, Opus, and AAC/M4A into Float32.
+- Resample only inside the 44.1 kHz or 48 kHz family, with 1/8x to 8x ratios.
+- Encode PCM WAV/FLAC at 16-bit or 24-bit with TPDF dither and metadata.
+- Encode packed DSF and DFF containers for DSD64, DSD128, and DSD256.
+- ATE analog presets: tube, vinyl, tape, hybrid, and solid-state A/AB/D.
+- Before/after frequency-response comparison for the ATE pipeline.
+- JavaFX dashboard with batch conversion, drag/drop, and cached analysis.
+- Multi-threaded decode, ATE filtering, DSD modulation, and CLI batch decode.
+- Streaming DSF/DFF writers and a streaming DSD packer to reduce memory.
+- SHA-256 checksums published with every GitHub release installer.
+
+## Releases
+
+Official installers and checksums are published on GitHub:
+
+<https://github.com/DBC091126/audio_engine/releases/tag/v1.1.0>
+
+Available artifacts:
+
+| Platform | Artifact |
+| --- | --- |
+| Linux x86_64 | `audio-engine_1.1.0_amd64.deb` |
+| Linux arm64 | `audio-engine_1.1.0_arm64.deb` |
+| macOS Intel | `audio-engine_1.1.0_macos-x86_64.dmg` |
+| macOS Apple Silicon | `audio-engine_1.1.0_macos-arm64.dmg` |
+| Windows x86_64 | `AudioEngine-1.1.0.exe` |
+
+Each artifact has a matching `.sha256` file. On Linux you can install a `.deb`
+with `dpkg -i`; on macOS open the `.dmg` and drag `AudioEngine` into
+`Applications`; on Windows run the `.exe` installer.
+
+## Build From Source
+
+### Required Toolchain
+
+- Rust stable
+- JDK 21 or newer
+- Maven, or use `gui/mvnw`
+- FFmpeg development headers on Linux/macOS for Opus and AAC/M4A
+- `pkg-config`
+- CMake for the bundled `libsamplerate` build
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  pkg-config libavformat-dev libavcodec-dev libavutil-dev \
+  libavfilter-dev libswresample-dev libswscale-dev libavdevice-dev
+```
+
+On macOS with Homebrew:
+
+```bash
+brew install ffmpeg pkg-config
+```
+
+### Build the Core
 
 ```bash
 cargo build --release
+./target/release/audio_engine --version
 ```
 
-## Test all six formats
-
-```bash
-bash scripts/test_all_formats.sh
-```
-
-The script generates one 1-second sample per format under `test_audio/` using FFmpeg, then prints
-sample rate, channel count, total frames, first five Float32 samples, and metadata for each file.
-
-## Test PCM encoder
-
-```bash
-bash scripts/test_pcm_encoder.sh
-```
-
-The script writes `test.wav` and `test.flac`, re-reads them with the Batch 1 decoder, and uses
-`ffprobe` when available to verify the embedded tags.
-
-## Test DSD encoder
-
-```bash
-bash scripts/test_dsd_encoder.sh
-```
-
-The script writes `test.dsf` and `test.dff`, then uses `ffmpeg -i` and `ffprobe` when available
-to verify stream parameters and metadata.
-
-## Test resampler
-
-```bash
-bash scripts/test_resampler.sh
-```
-
-The script runs the family validation cases and performs an FFI 44.1 kHz to 88.2 kHz conversion
-through `create_src` / `process_src` / `destroy_src`.
-
-## Test DSD modulator
-
-```bash
-bash scripts/test_dsd_modulator.sh
-```
-
-The script covers 44.1k/48k DSD256 conversion, DSD64 conversion, 192 kHz DSD256, and explicit
-cross-family rejection through the DSD family firewall.
-
-## PCM pipeline
-
-```bash
-cargo run --release -- -i test.flac -o out.wav -r 176400 -b 24
-cargo run --release -- -i test.flac -o out.flac -r 88200 -b 16
-```
-
-The pipeline decodes the input, resamples in 4096-frame blocks through libsamplerate, and writes
-PCM output incrementally.
-
-## DSD pipeline
-
-```bash
-cargo run --release -- -i test.flac -o out.dsf -d 256
-cargo run --release -- -i test.flac -o out.dff -d 64
-```
-
-The pipeline resamples PCM to the correct 352.8k/384k working rate when needed, then modulates to
-DSD and writes DSF/DFF.
-
-## ATE test
-
-```bash
-cargo run --release -- --ate-test
-```
-
-The test runs a Tube preset harmonic analysis and a Vintage DAC IMD test. ATE is disabled by
-default; enable it through `AteConfig.enable`.
-
-## FFI test
-
-```bash
-cargo run --release -- --ffi-test
-```
-
-The test calls `process_file` for PCM WAV and DSD DSF+ATE paths, then calls `get_file_info` to
-verify sample rate, channels, bit depth, and duration.
-
-## JavaFX GUI
-
-```bash
-bash scripts/run_gui.sh
-```
-
-Build and JNA smoke test:
+### Build the GUI
 
 ```bash
 bash scripts/test_gui.sh
 ```
 
-The GUI requires JDK 21+ and JavaFX. It stores settings in `~/.audio_engine/config.toml`.
-
-## Packaging
+### Package an Installer
 
 ```bash
 bash scripts/package.sh
 ```
 
-On Linux this produces a `.deb`, on macOS a `.dmg`, and on Windows `package.bat` produces an
-`.exe`. Set `PACKAGE_TYPE=app-image` for a portable app directory.
+The script produces `.deb` on Linux, `.dmg` on macOS, and `.exe` on Windows.
+`PACKAGE_TYPE=app-image` produces a portable app directory.
 
-Rust cross-compile targets can be selected with:
+## Command Line
+
+### Decode and Inspect Files
 
 ```bash
-RUST_TARGET=x86_64-pc-windows-gnu bash scripts/package.sh
-RUST_TARGET=aarch64-apple-darwin bash scripts/package.sh
+audio_engine song.flac
+audio_engine song.flac song.mp3 song.m4a
+audio_engine --all
 ```
 
-The Maven Assembly descriptor packs the Rust dynamic library into the app directory as
-`native/`, and the GUI loads it from the JAR's ProtectionDomain-relative `native/` folder.
+The CLI decodes input files in parallel and prints sample rate, channel count,
+frame count, the first samples, and container metadata.
+
+### PCM Conversion
+
+```bash
+audio_engine -i song.flac -o out.wav -r 176400 -b 24
+audio_engine -i song.flac -o out.flac -r 88200 -b 16
+```
+
+Only family-compatible rates are accepted:
+
+| Source family | Allowed targets |
+| --- | --- |
+| 44.1 kHz | 88.2 / 176.4 / 352.8 kHz |
+| 48 kHz | 96 / 192 / 384 kHz |
+
+### DSD Conversion
+
+```bash
+audio_engine -i song.flac -o out.dsf -d 256
+audio_engine -i song.flac -o out.dff -d 64
+```
+
+`-d` accepts `64`, `128`, or `256`. Intermediate working rates are inserted
+automatically, then the PCM is modulated to packed 1-bit DSD.
+
+### Diagnostics
+
+```bash
+audio_engine --version
+audio_engine --pcm-test
+audio_engine --dsd-test
+audio_engine --resample-test
+audio_engine --dsd-modulator-test
+audio_engine --ate-test
+audio_engine --ffi-test
+```
+
+## GUI
+
+The JavaFX GUI contains:
+
+- Main dashboard with animated DSP console and navigation cards.
+- Batch PCM/DSD converter with drag/drop and file metadata cache.
+- ATE tone lab with analog preset selection and intensity control.
+- Before/after frequency-response comparison chart.
+- Progress, log, queue, output-folder, and language controls.
+- English, Simplified Chinese, and Traditional Chinese localization.
+
+Settings are stored in `~/.audio_engine/config.toml`.
+
+## ATE Presets
+
+The ATE engine models nonlinear state, crossover distortion, channel mismatch,
+noise, jitter, and oversampling. Available presets include:
+
+- Tube
+- Vinyl
+- Tape
+- Hybrid
+- Vintage DAC
+- Solid-State Class A single-ended
+- Solid-State Class A push-pull
+- Solid-State Class AB
+- Solid-State Class D
+- Vintage solid state
+
+The audio-synthesis path is deliberately deterministic with a fixed random
+seed so the same file and preset produce the same result.
+
+## Performance Notes
+
+The release is optimized without degrading the requested sound path:
+
+- ATE FIR oversampling uses a polyphase implementation and Rayon parallelism,
+  reducing operations while keeping the same filter response.
+- DC blocking and low-pass stages run in place to reduce allocations.
+- Gaussian noise uses a static lookup table instead of per-sample
+  transcendental functions.
+- DSD modulation runs both channels in parallel and packs bits incrementally.
+- DSF and DFF writers stream to disk instead of building a second full-file
+  `Vec<u8>` in memory.
+- M4A/Opus metadata is probed from headers instead of fully decoding the file.
+- The CLI decodes multiple input files in parallel.
+
+Local benchmark on a 10-second stereo file:
+
+| Path | Time | Peak RSS |
+| --- | --- | --- |
+| ATE 4x oversampling (tube) | about 0.22 s | small |
+| PCM 44.1 kHz to 176.4 kHz | about 1.6 s | moderate |
+| PCM to DSD256 | about 5.5 s | about 160 MB |
+
+Results vary by CPU, core count, and file length.
+
+## Testing
+
+Run the Rust unit suite:
+
+```bash
+cargo test --release
+```
+
+Run the format and pipeline scripts:
+
+```bash
+bash scripts/test_all_formats.sh
+bash scripts/test_ffi.sh
+bash scripts/test_dsd_pipeline.sh
+bash scripts/test_ate.sh
+bash scripts/test_gui.sh
+```
+
+`scripts/test_all_formats.sh` asserts that Opus decodes to the expected frame
+count, which guards the FFmpeg resampler flush logic.
+
+## Layout
+
+```text
+src/
+  decoder.rs            Unified decode entry point
+  ffmpeg_decoder.rs     FFmpeg fallback and header probing
+  symphonia_decoder.rs  Symphonia decoder
+  resampler.rs          libsamplerate family validation
+  pipeline.rs           PCM/DSD command-line pipelines
+  encoder.rs            PCM WAV/FLAC writers
+  dsd.rs                DSF/DFF container writers
+  dsd_modulator.rs      PCM-to-DSD modulator
+  ffi.rs                C ABI for Java/JNA
+  ate/                  Analog texture engine
+gui/
+  src/main/java/        JavaFX application
+  src/main/resources/   Theme CSS
+.github/workflows/      Cross-platform release builds
+examples/ate_bench.rs   Repeatable ATE performance benchmark
+```
+
+## Windows Note
+
+The Windows installer is built with `--no-default-features` because the MSYS2
+FFmpeg/bindgen toolchain is not reliable in the current CI environment. That
+build supports WAV, FLAC, MP3, and OGG through Symphonia; Opus and AAC/M4A
+require the FFmpeg-backed build on Linux or macOS.
+
+## License
+
+MIT
