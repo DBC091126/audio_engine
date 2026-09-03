@@ -166,9 +166,23 @@ noise, jitter, and oversampling. Available presets include:
 - Solid-State Class AB
 - Solid-State Class D
 - Vintage solid state
+- Tube push-pull
+- Ferrite tape
+- Phono stage
 
 The audio-synthesis path is deliberately deterministic with a fixed random
 seed so the same file and preset produce the same result.
+
+The advanced ATE lab also exposes a custom control set in the GUI:
+
+- Thermal/pink/tape noise floor
+- Clock jitter amount
+- Channel phase offset
+- Crossover depth
+- Even-harmonic and odd-harmonic scaling
+
+Custom controls are overlaid on the selected preset; leaving a control at its
+default keeps the preset character intact.
 
 ## Performance Notes
 

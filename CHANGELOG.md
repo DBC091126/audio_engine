@@ -20,6 +20,9 @@
 - Parallelized multi-file CLI decoding.
 - Added Cargo and Maven dependency caching to release workflows.
 - Added the `examples/ate_bench.rs` repeatable ATE benchmark.
+- Added tube push-pull, ferrite tape, and phono-stage presets.
+- Exposed advanced ATE noise, jitter, phase, crossover, and harmonic controls
+  through the GUI and new `process_file_custom` FFI entry point.
 
 ### Correctness
 
