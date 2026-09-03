@@ -9,6 +9,10 @@
   cache, queue, and output labels are re-rendered after switching language.
 - Added the "Audio Engine" window title and file-family labels to the language
   switch path.
+- Made M4A/AAC response curves work without FFmpeg by probing the sample rate
+  from Symphonia and decoding the preview through Symphonia.
+- Surface native response-curve errors back to the GUI instead of returning a
+  bare `code -1`.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0

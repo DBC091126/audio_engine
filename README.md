@@ -261,8 +261,8 @@ examples/ate_bench.rs   Repeatable ATE performance benchmark
 
 The Windows installer is built with `--no-default-features` because the MSYS2
 FFmpeg/bindgen toolchain is not reliable in the current CI environment. That
-build supports WAV, FLAC, MP3, and OGG through Symphonia; Opus and AAC/M4A
-require the FFmpeg-backed build on Linux or macOS.
+build supports WAV, FLAC, MP3, OGG, and AAC/M4A through Symphonia. Opus still
+requires the FFmpeg-backed build on Linux or macOS.
 
 ## License
 
