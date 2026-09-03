@@ -215,6 +215,38 @@ pub(crate) fn probe(path: &str) -> Result<AudioData, anyhow::Error> {
     })
 }
 
+pub(crate) fn probe_sample_rate_only(path: &str) -> Result<u32, anyhow::Error> {
+    let file = File::open(path).with_context(|| format!("failed to open {path}"))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = Path::new(path).extension().and_then(|ext| ext.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .with_context(|| format!("symphonia failed to probe {path}"))?;
+    let mut format = probed.format;
+    consume_format_metadata(&mut format, &mut HashMap::new());
+
+    let track = format
+        .tracks()
+        .iter()
+        .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
+        .ok_or_else(|| anyhow!("no supported audio track in {path}"))?;
+    let sample_rate = track.codec_params.sample_rate.unwrap_or(0);
+    if sample_rate == 0 {
+        return Err(anyhow!("probe could not determine sample rate for {path}"));
+    }
+    Ok(sample_rate)
+}
+
 fn collect_metadata(
     revision: Option<&symphonia::core::meta::MetadataRevision>,
     metadata: &mut HashMap<String, String>,

@@ -85,6 +85,10 @@ public final class AudioEngineService {
                 buffer,
                 buffer.size());
         if (rc != 0) {
+            String nativeError = buffer.getString(0, StandardCharsets.UTF_8.name());
+            if (nativeError != null && nativeError.startsWith("ERROR:")) {
+                throw new IOException(nativeError.substring("ERROR:".length()).trim());
+            }
             throw new IOException("get_ate_response_curve failed with code " + rc);
         }
         return ResponseCurve.parse(buffer.getString(0, StandardCharsets.UTF_8.name()));

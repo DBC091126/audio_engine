@@ -319,6 +319,7 @@ pub extern "C" fn get_ate_response_curve(
         Ok(curve) => curve,
         Err(error) => {
             eprintln!("[FFI ERROR] {error:#}");
+            write_text(&format!("ERROR: {error:#}"), buffer, buffer_size);
             return -1;
         }
     };
@@ -368,6 +369,7 @@ pub extern "C" fn get_ate_response_curve_custom(
         Ok(curve) => curve,
         Err(error) => {
             eprintln!("[FFI ERROR] {error:#}");
+            write_text(&format!("ERROR: {error:#}"), buffer, buffer_size);
             return -1;
         }
     };

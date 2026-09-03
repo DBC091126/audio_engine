@@ -28,14 +28,31 @@ pub struct AudioData {
 pub fn decode_file(path: &str) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
 
-    if matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus") {
+    if matches!(ext.as_str(), "m4a" | "aac" | "mp4") {
+        match symphonia_decoder::decode(path) {
+            Ok(data) => return Ok(data),
+            Err(symphonia_err) => {
+                #[cfg(feature = "ffmpeg")]
+                return ffmpeg_decoder::decode(path).with_context(|| {
+                    format!(
+                        "symphonia failed ({symphonia_err:#}); ffmpeg fallback also failed for {path}"
+                    )
+                });
+                #[cfg(not(feature = "ffmpeg"))]
+                return Err(symphonia_err).with_context(|| {
+                    format!("symphonia decode failed for {path}")
+                });
+            }
+        }
+    }
+
+    if matches!(ext.as_str(), "opus") {
         #[cfg(feature = "ffmpeg")]
         return ffmpeg_decoder::decode(path)
             .with_context(|| format!("ffmpeg decoder failed for {path}"));
         #[cfg(not(feature = "ffmpeg"))]
         return Err(anyhow!(
-            "FFmpeg-dependent format {} is unavailable in this build",
-            ext
+            "Opus depends on FFmpeg and is unavailable in this build: {path}"
         ));
     }
 
@@ -58,7 +75,12 @@ pub(crate) fn decode_preview_seconds(
 ) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
     let ffmpeg_first = matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus");
-    let sample_rate = if ffmpeg_first {
+    let symphonia_first = matches!(ext.as_str(), "m4a" | "aac" | "mp4")
+        && symphonia_decoder::probe_sample_rate_only(path).is_ok();
+
+    let sample_rate = if symphonia_first {
+        symphonia_decoder::probe_sample_rate_only(path)?
+    } else if ffmpeg_first {
         #[cfg(feature = "ffmpeg")]
         {
             ffmpeg_decoder::probe_sample_rate(path)?
@@ -86,6 +108,10 @@ pub(crate) fn decode_preview_seconds(
     }
 
     let max_frames = ((f64::from(sample_rate)) * seconds).max(1.0) as usize;
+    if symphonia_first {
+        return symphonia_decoder::decode_preview(path, max_frames)
+            .with_context(|| format!("symphonia preview decoder failed for {path}"));
+    }
     if ffmpeg_first {
         #[cfg(feature = "ffmpeg")]
         {
@@ -124,19 +150,35 @@ pub(crate) fn probe_file(path: &str) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
 
     if matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus") {
-        #[cfg(feature = "ffmpeg")]
-        {
-            return match ffmpeg_decoder::probe_info(path) {
-                Ok(data) if data.total_frames > 0 => Ok(data),
-                Ok(_) => decode_file(path),
-                Err(_) => decode_file(path),
-            };
+        if matches!(ext.as_str(), "m4a" | "aac" | "mp4") {
+            if let Ok(data) = symphonia_decoder::probe(path) {
+                if data.sample_rate > 0 && data.channels > 0 && data.total_frames > 0 {
+                    return Ok(data);
+                }
+            }
+            #[cfg(feature = "ffmpeg")]
+            {
+                return match ffmpeg_decoder::probe_info(path) {
+                    Ok(data) if data.total_frames > 0 => Ok(data),
+                    Ok(_) => decode_file(path),
+                    Err(_) => decode_file(path),
+                };
+            }
+            #[cfg(not(feature = "ffmpeg"))]
+            return decode_file(path);
         }
-        #[cfg(not(feature = "ffmpeg"))]
-        {
+        if matches!(ext.as_str(), "opus") {
+            #[cfg(feature = "ffmpeg")]
+            {
+                return match ffmpeg_decoder::probe_info(path) {
+                    Ok(data) if data.total_frames > 0 => Ok(data),
+                    Ok(_) => decode_file(path),
+                    Err(_) => decode_file(path),
+                };
+            }
+            #[cfg(not(feature = "ffmpeg"))]
             return Err(anyhow!(
-                "FFmpeg-dependent format {} is unavailable in this build",
-                ext
+                "Opus depends on FFmpeg and is unavailable in this build: {path}"
             ));
         }
     }
