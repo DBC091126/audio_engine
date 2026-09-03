@@ -124,6 +124,7 @@ fn decode_with_limit(
     let mut decoded_frame = AudioFrame::empty();
     let mut resampled_frame = AudioFrame::empty();
     let max_samples = max_frames.map(|frames| frames.saturating_mul(usize::from(channels)));
+    let mut limit_reached = false;
 
     'packets: for (packet_stream, packet) in context.packets() {
         if packet_stream.index() != stream_index {
@@ -138,12 +139,13 @@ fn decode_with_limit(
                 .run(&decoded_frame, &mut resampled_frame)
                 .with_context(|| format!("ffmpeg resample failed for {path}"))?;
             if append_resampled(&resampled_frame, channels, max_samples, &mut samples)? {
+                limit_reached = true;
                 break 'packets;
             }
         }
     }
 
-    if max_frames.is_none() {
+    if !limit_reached {
         decoder
             .send_eof()
             .with_context(|| format!("ffmpeg send_eof failed for {path}"))?;
@@ -152,8 +154,13 @@ fn decode_with_limit(
                 .run(&decoded_frame, &mut resampled_frame)
                 .with_context(|| format!("ffmpeg final resample failed for {path}"))?;
             if append_resampled(&resampled_frame, channels, max_samples, &mut samples)? {
+                limit_reached = true;
                 break;
             }
+        }
+
+        if !limit_reached {
+            let _ = flush_resampler(&mut resampler, channels, max_samples, &mut samples)?;
         }
     }
 
@@ -170,6 +177,32 @@ fn decode_with_limit(
         total_frames,
         metadata,
     })
+}
+
+fn flush_resampler(
+    resampler: &mut ResamplingContext,
+    channels: u16,
+    max_samples: Option<usize>,
+    output: &mut Vec<f32>,
+) -> Result<bool, anyhow::Error> {
+    loop {
+        let output_def = resampler.output();
+        let mut flushed_frame =
+            AudioFrame::new(output_def.format, 8192, output_def.channel_layout);
+        let delay = resampler
+            .flush(&mut flushed_frame)
+            .map_err(|err| anyhow!("ffmpeg resampler flush failed: {err}"))?;
+        if flushed_frame.samples() == 0 {
+            break;
+        }
+        if append_resampled(&flushed_frame, channels, max_samples, output)? {
+            return Ok(true);
+        }
+        if delay.is_none() {
+            break;
+        }
+    }
+    Ok(false)
 }
 
 fn append_resampled(

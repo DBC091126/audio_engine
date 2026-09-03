@@ -48,23 +48,24 @@ public final class BatchConversionTask extends Task<Void> {
             Thread monitor = null;
             try {
                 Path input = item.getInput();
-                String output = deriveOutput(input, outputDir, settings);
-                Files.deleteIfExists(Path.of(output));
                 AudioInfo info = item.getInfo() != null
                         ? item.getInfo()
                         : service.readInfo(input.toString());
                 item.setInfo(info);
 
+                ConversionSettings effectiveSettings = settings;
                 if (settings.getMode() == ConversionSettings.OutputMode.PCM) {
                     int resolvedRate = compatiblePcmRate(info, settings);
                     if (resolvedRate != settings.getPcmRate()) {
-                        settings.setPcmRate(resolvedRate);
+                        effectiveSettings = settings.copyWithPcmRate(resolvedRate);
                         logSink.accept("目标采样率调整为 " + resolvedRate
                                 + " Hz（" + familyLabel(info) + "）");
                     }
                 }
+                String output = deriveOutput(input, outputDir, effectiveSettings);
+                Files.deleteIfExists(Path.of(output));
 
-                long expectedBytes = estimateBytes(info, settings);
+                long expectedBytes = estimateBytes(info, effectiveSettings);
                 AtomicBoolean threadStop = new AtomicBoolean(false);
                 stop = threadStop;
                 int itemIndex = done;
@@ -78,7 +79,7 @@ public final class BatchConversionTask extends Task<Void> {
                 updateMessage("开始转换: " + item.getFileName());
                 logSink.accept("开始转换: " + item.getFileName());
 
-                service.convert(input.toString(), output, settings);
+                service.convert(input.toString(), output, effectiveSettings);
 
                 if (Thread.interrupted()) {
                     throw new InterruptedException("cancelled after native call");

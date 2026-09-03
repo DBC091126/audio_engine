@@ -468,6 +468,10 @@ fn oversampling_for_rate(sample_rate: u32) -> OversamplingMode {
 }
 
 fn family_base(rate: u32) -> Result<u32, Error> {
+    if rate == 0 {
+        return Err(anyhow!("sample rate must be greater than zero"));
+    }
+
     if rate % 44_100 == 0 {
         Ok(44_100)
     } else if rate % 48_000 == 0 {

@@ -54,5 +54,16 @@ ffmpeg -hide_banner -loglevel error -y \
   -c:a aac -b:a 192k "$OUT/sample.m4a"
 
 cd "$ROOT"
+ENGINE_LOG="$OUT/summary.log"
 cargo run --release -- "$OUT/sample.wav" "$OUT/sample.flac" "$OUT/sample.mp3" \
-  "$OUT/sample.ogg" "$OUT/sample.opus" "$OUT/sample.m4a"
+  "$OUT/sample.ogg" "$OUT/sample.opus" "$OUT/sample.m4a" >"$ENGINE_LOG" 2>&1
+cat "$ENGINE_LOG"
+
+opus_frames="$(awk '
+  /\[.*sample\.opus\]/ { in_opus = 1; next }
+  in_opus && /total_frames:/ { print $2; exit }
+' "$ENGINE_LOG")"
+if [[ "$opus_frames" != "48000" ]]; then
+  echo "Opus frame count mismatch: expected 48000, got ${opus_frames:-missing}" >&2
+  exit 1
+fi

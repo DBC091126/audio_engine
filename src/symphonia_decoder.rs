@@ -102,14 +102,15 @@ fn decode_with_limit(
                 });
                 buffer.copy_interleaved_ref(decoded);
                 let decoded_samples = buffer.samples();
-                let take = max_frames
+                let remaining = max_frames
                     .map(|frames| {
                         usize::from(channels)
                             .checked_mul(frames)
                             .unwrap_or(usize::MAX)
-                            .min(decoded_samples.len())
+                            .saturating_sub(samples.len())
                     })
-                    .unwrap_or(decoded_samples.len());
+                    .unwrap_or(usize::MAX);
+                let take = remaining.min(decoded_samples.len());
                 samples.extend(
                     decoded_samples[..take]
                         .iter()
@@ -212,7 +213,9 @@ fn collect_metadata(
 ) {
     if let Some(revision) = revision {
         for tag in revision.tags() {
-            metadata.insert(tag.key.clone(), tag.value.to_string());
+            let key = tag.key.trim_matches('\0').to_string();
+            let value = tag.value.to_string();
+            metadata.insert(key, value.trim_matches('\0').to_string());
         }
     }
 }

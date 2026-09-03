@@ -11,6 +11,10 @@ const ALLOWED_RATIOS: [f64; 7] = [0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
 /// Check that both rates belong to the same family and the ratio is one of
 /// 1/8x, 1/4x, 1/2x, 1x, 2x, 4x or 8x.
 pub fn validate_rate_family(src_rate: u32, tgt_rate: u32) -> Result<(), String> {
+    if src_rate == 0 || tgt_rate == 0 {
+        return Err("采样率必须大于 0".to_string());
+    }
+
     let src_is_44k = src_rate % 44100 == 0;
     let src_is_48k = src_rate % 48000 == 0;
 
@@ -51,6 +55,9 @@ pub fn validate_rate_family(src_rate: u32, tgt_rate: u32) -> Result<(), String> 
 
 /// Return the family-compatible target rates used by the GUI.
 pub fn get_recommended_rates(input_rate: u32) -> Vec<u32> {
+    if input_rate == 0 {
+        return Vec::new();
+    }
     if input_rate % 44100 == 0 {
         vec![88200, 176400, 352800]
     } else if input_rate % 48000 == 0 {
@@ -313,6 +320,8 @@ mod tests {
 
     #[test]
     fn family_validation_cases() {
+        assert!(validate_rate_family(0, 88_200).is_err());
+        assert!(validate_rate_family(44_100, 0).is_err());
         assert!(validate_rate_family(44_100, 88_200).is_ok());
         assert!(validate_rate_family(44_100, 96_000).is_err());
         assert!(validate_rate_family(48_000, 192_000).is_ok());
@@ -323,6 +332,7 @@ mod tests {
 
     #[test]
     fn recommended_rates_follow_family() {
+        assert!(get_recommended_rates(0).is_empty());
         assert_eq!(
             get_recommended_rates(44_100),
             vec![88_200, 176_400, 352_800]

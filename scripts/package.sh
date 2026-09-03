@@ -37,9 +37,19 @@ else
   NATIVE_DIR="$ROOT/target/release"
 fi
 
-JAVA_HOME="${GUI_JAVA_HOME:-/home/dbc211/.sdkman/candidates/java/21.0.9-tem}"
+if [ -n "${GUI_JAVA_HOME:-}" ]; then
+  JAVA_HOME="$GUI_JAVA_HOME"
+elif [ -x "/home/dbc211/.sdkman/candidates/java/21.0.9-tem/bin/java" ]; then
+  JAVA_HOME="/home/dbc211/.sdkman/candidates/java/21.0.9-tem"
+elif command -v java >/dev/null 2>&1; then
+  JAVA_BIN="$(command -v java)"
+  JAVA_HOME="$(cd "$(dirname "$JAVA_BIN")/.." && pwd)"
+else
+  echo "java not found; set GUI_JAVA_HOME or JAVA_HOME" >&2
+  exit 2
+fi
 export JAVA_HOME
-export PATH="$JAVA_HOME/bin:/home/dbc211/.sdkman/candidates/maven/current/bin:/usr/bin:/bin"
+export PATH="$JAVA_HOME/bin:$PATH"
 
 if [ -n "${MAVEN_CMD:-}" ]; then
   MVN="$MAVEN_CMD"

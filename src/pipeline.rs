@@ -210,6 +210,10 @@ pub(crate) fn dsd_mode_from_u32(mode: u32) -> Result<DsdMode, anyhow::Error> {
 }
 
 pub(crate) fn dsd_working_rate(input_rate: u32) -> Result<u32, anyhow::Error> {
+    if input_rate == 0 {
+        return Err(anyhow!("input sample rate must be greater than zero"));
+    }
+
     let base = if input_rate % 44_100 == 0 {
         44_100
     } else if input_rate % 48_000 == 0 {

@@ -164,4 +164,18 @@ public final class ConversionSettings {
     public short dsdModeCode() {
         return (short) dsdMode.getRate();
     }
+
+    public ConversionSettings copyWithPcmRate(int pcmRate) {
+        ConversionSettings copy = new ConversionSettings();
+        copy.mode = mode;
+        copy.pcmRate = pcmRate;
+        copy.bitDepth = bitDepth;
+        copy.pcmFormat = pcmFormat;
+        copy.dsdMode = dsdMode;
+        copy.dsdFormat = dsdFormat;
+        copy.ateEnabled = ateEnabled;
+        copy.ateStyle = ateStyle;
+        copy.ateIntensity = ateIntensity;
+        return copy;
+    }
 }
