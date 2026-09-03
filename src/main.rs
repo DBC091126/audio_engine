@@ -3,6 +3,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::PathBuf;
 
+use rayon::prelude::*;
 use audio_engine::ate::{
     make_config, process_ate, AteAnalyzer, AteConfig, AtePreset, OversamplingMode,
 };
@@ -64,9 +65,13 @@ fn main() -> anyhow::Result<()> {
         args[1..].to_vec()
     };
 
-    for path in paths {
-        let label = PathBuf::from(&path).display().to_string();
-        match decode_file(&path) {
+    let results: Vec<(&String, Result<audio_engine::AudioData, anyhow::Error>)> = paths
+        .par_iter()
+        .map(|path| (path, decode_file(path)))
+        .collect();
+    for (path, result) in results {
+        let label = PathBuf::from(path).display().to_string();
+        match result {
             Ok(data) => print_summary(&label, &data),
             Err(err) => eprintln!("FAILED {label}: {err:#}"),
         }

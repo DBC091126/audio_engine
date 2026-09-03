@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 use super::config::ChannelMismatch;
 use super::noise::Lcg;
 
@@ -17,13 +19,16 @@ pub fn apply_channel_variance(
     let cos_phase = phase_rad.cos();
     let sin_phase = phase_rad.sin();
 
-    for i in 0..left.len() {
-        let l = left[i] * l_gain + right[i] * crosstalk;
-        let r = right[i] * r_gain + left[i] * crosstalk;
-        left[i] = l;
-        right[i] = r;
-        if i % 2 == 1 {
-            right[i] = right[i] * cos_phase - l * sin_phase;
-        }
-    }
+    left.par_iter_mut()
+        .enumerate()
+        .zip(right.par_iter_mut())
+        .for_each(|((i, left_sample), right_sample)| {
+            let l = *left_sample * l_gain + *right_sample * crosstalk;
+            let r = *right_sample * r_gain + *left_sample * crosstalk;
+            *left_sample = l;
+            *right_sample = r;
+            if i % 2 == 1 {
+                *right_sample = *right_sample * cos_phase - l * sin_phase;
+            }
+        });
 }
