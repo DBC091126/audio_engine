@@ -2,7 +2,7 @@
 
 Cross-platform high-resolution audio conversion and analog tone processing.
 
-Current version: **1.1.0**
+Current version: **1.2.1**
 
 The engine decodes common compressed and lossless formats, resamples with the
 high-quality `SRC_SINC_BEST_QUALITY` algorithm, converts PCM to DSD, and applies
@@ -25,17 +25,17 @@ the ATE analog texture engine. It ships as a Rust core with a JavaFX GUI.
 
 Official installers and checksums are published on GitHub:
 
-<https://github.com/DBC091126/audio_engine/releases/tag/v1.1.0>
+<https://github.com/DBC091126/audio_engine/releases/tag/v1.2.1>
 
 Available artifacts:
 
 | Platform | Artifact |
 | --- | --- |
-| Linux x86_64 | `audio-engine_1.1.0_amd64.deb` |
-| Linux arm64 | `audio-engine_1.1.0_arm64.deb` |
-| macOS Intel | `audio-engine_1.1.0_macos-x86_64.dmg` |
-| macOS Apple Silicon | `audio-engine_1.1.0_macos-arm64.dmg` |
-| Windows x86_64 | `AudioEngine-1.1.0.exe` |
+| Linux x86_64 | `audio-engine_1.2.1_amd64.deb` |
+| Linux arm64 | `audio-engine_1.2.1_arm64.deb` |
+| macOS Intel | `audio-engine_1.2.1_macos-x86_64.dmg` |
+| macOS Apple Silicon | `audio-engine_1.2.1_macos-arm64.dmg` |
+| Windows x86_64 | `AudioEngine-1.2.1.exe` |
 
 Each artifact has a matching `.sha256` file. On Linux you can install a `.deb`
 with `dpkg -i`; on macOS open the `.dmg` and drag `AudioEngine` into

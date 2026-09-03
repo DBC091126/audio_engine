@@ -65,18 +65,18 @@ jobs:
         run: |
           "$JAVA_HOME/bin/jpackage" \
             --type exe \
-            --input gui/target/audio-engine-gui-1.1.0-dist \
+            --input gui/target/audio-engine-gui-1.2.1-dist \
             --dest dist \
             --name AudioEngine \
-            --app-version 1.1.0 \
-            --main-jar audio-engine-gui-1.1.0.jar \
+            --app-version 1.2.1 \
+            --main-jar audio-engine-gui-1.2.1.jar \
             --main-class com.losshifi.audioengine.Main \
-            --module-path gui/target/audio-engine-gui-1.1.0-dist \
+            --module-path gui/target/audio-engine-gui-1.2.1-dist \
             --add-modules javafx.controls,java.logging,java.naming \
             --win-menu \
             --win-shortcut
 
-      - name: Upload Windows installer to v1.1.0
+      - name: Upload Windows installer to v1.2.1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -84,7 +84,7 @@ jobs:
           ls -lh dist
           installer=$(find dist -maxdepth 1 -name '*.exe' -print -quit)
           test -n "$installer"
-          gh release upload v1.1.0 "$installer" --repo DBC091126/audio_engine --clobber
+          gh release upload v1.2.1 "$installer" --repo DBC091126/audio_engine --clobber
           checksum="$installer.sha256"
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$installer" > "$checksum"
@@ -92,5 +92,5 @@ jobs:
             shasum -a 256 "$installer" > "$checksum"
           fi
           if [ -f "$checksum" ]; then
-            gh release upload v1.1.0 "$checksum" --repo DBC091126/audio_engine --clobber
+            gh release upload v1.2.1 "$checksum" --repo DBC091126/audio_engine --clobber
           fi

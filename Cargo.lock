@@ -25,7 +25,7 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "audio_engine"
-version = "1.1.0"
+version = "1.2.1"
 dependencies = [
  "anyhow",
  "ffmpeg-next",

@@ -67,7 +67,7 @@ cd "$ROOT/gui"
   -Djavafx.version="${JAVAFX_VERSION:-21.0.4}" \
   -Daudio.engine.native.dir="$NATIVE_DIR"
 
-DIST="$ROOT/gui/target/audio-engine-gui-1.1.0-dist"
+DIST="$ROOT/gui/target/audio-engine-gui-1.2.1-dist"
 OUT="$ROOT/dist"
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -83,9 +83,9 @@ if [ -z "$PACKAGE_TYPE" ]; then
 fi
 
 if [ "$OS" = "Darwin" ]; then
-  APP_VERSION="${APP_VERSION:-1.1.0}"
+  APP_VERSION="${APP_VERSION:-1.2.1}"
 else
-  APP_VERSION="${APP_VERSION:-1.1.0}"
+  APP_VERSION="${APP_VERSION:-1.2.1}"
 fi
 
 JPACKAGE_ARGS=(
@@ -94,7 +94,7 @@ JPACKAGE_ARGS=(
   --dest "$OUT"
   --name "AudioEngine"
   --app-version "$APP_VERSION"
-  --main-jar "audio-engine-gui-1.1.0.jar"
+  --main-jar "audio-engine-gui-1.2.1.jar"
   --main-class "com.losshifi.audioengine.Main"
   --module-path "$DIST"
   --add-modules "javafx.controls,java.logging,java.naming"

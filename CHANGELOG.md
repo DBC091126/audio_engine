@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1
+
+- Added tube push-pull, ferrite tape, and phono-stage ATE presets.
+- Exposed advanced ATE noise, jitter, phase, crossover, and even/odd harmonic
+  controls through the GUI and the new `process_file_custom` FFI entry point.
+- Fixed global language synchronization so dynamic file information, memory,
+  cache, queue, and output labels are re-rendered after switching language.
+- Added the "Audio Engine" window title and file-family labels to the language
+  switch path.
+- Bumped the project, Maven, installer, and release version to `1.2.1`.
+
 ## 1.1.0
 
 ### Performance

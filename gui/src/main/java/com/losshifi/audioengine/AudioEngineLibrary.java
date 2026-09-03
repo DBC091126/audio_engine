@@ -138,7 +138,7 @@ public interface AudioEngineLibrary extends Library {
                 "target/release",
                 "../target/release",
                 "audio_engine/target/release",
-                "audio_engine/gui/target/audio-engine-gui-1.1.0-dist/native",
+                "audio_engine/gui/target/audio-engine-gui-1.2.1-dist/native",
         };
         for (String candidate : candidates) {
             File dir = new File(userDir, candidate);

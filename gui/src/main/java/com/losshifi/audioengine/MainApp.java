@@ -5,6 +5,7 @@ import javafx.application.Platform;
 import javafx.animation.AnimationTimer;
 import javafx.beans.binding.Bindings;
 import javafx.beans.binding.BooleanBinding;
+import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.concurrent.Task;
@@ -139,6 +140,7 @@ public final class MainApp extends Application {
     private TabPane settingsTabs;
     private TechField techField;
     private String language = "English";
+    private final SimpleStringProperty languageProperty = new SimpleStringProperty("English");
     private final Map<Object, String> textSources = new LinkedHashMap<>();
     private boolean batchRunning;
     private boolean selectingProgrammatically;
@@ -578,9 +580,19 @@ public final class MainApp extends Application {
         languageBox.setValue(value);
         applyingLanguageProgrammatically = false;
         language = value;
+        languageProperty.set(value);
         config.set("language", value);
         saveConfig();
         applyLanguageToTextNodes();
+        stage.setTitle(translateText("Audio Engine"));
+        if (currentInfo != null) {
+            showInfo(currentInfo);
+        } else {
+            clearInfo();
+        }
+        outputDirLabel.setText(outputDir == null ? "-" : outputDir.toString());
+        BatchItem selected = fileList.getSelectionModel().getSelectedItem();
+        ateCurrentFileLabel.setText(selected == null ? noFileText() : selected.getFileName());
         dashboardLanguageButton.setText(switch (value) {
             case "English" -> "LANG: ENG";
             case "繁體中文" -> "LANG: 繁";
@@ -591,7 +603,7 @@ public final class MainApp extends Application {
     }
 
     private void recordTextSources(Node node) {
-        if (node instanceof Labeled labeled) {
+        if (node instanceof Labeled labeled && !isDynamicTextNode(labeled)) {
             textSources.put(labeled, labeled.getText());
         }
         if (node instanceof TabPane tabs) {
@@ -604,6 +616,22 @@ public final class MainApp extends Application {
                 recordTextSources(child);
             }
         }
+    }
+
+    private boolean isDynamicTextNode(Node node) {
+        return node == queueStatsLabel
+                || node == outputStatusLabel
+                || node == dashboardQueueLabel
+                || node == memoryLabel
+                || node == cacheLabel
+                || node == sampleRateLabel
+                || node == bitDepthLabel
+                || node == channelsLabel
+                || node == durationLabel
+                || node == familyLabel
+                || node == metadataLabel
+                || node == ateCurrentFileLabel
+                || node == outputDirLabel;
     }
 
     private void applyLanguageToTextNodes() {
@@ -1070,7 +1098,9 @@ public final class MainApp extends Application {
     private void showInfo(AudioInfo info) {
         currentInfo = info;
         sampleRateLabel.setText(info.getSampleRate() + " Hz");
-        bitDepthLabel.setText(info.getBits() == 0 ? "未知" : info.getBits() + " bit");
+        bitDepthLabel.setText(info.getBits() == 0
+                ? translateText("未知")
+                : info.getBits() + " bit");
         channelsLabel.setText(info.getChannels() + " ch");
         durationLabel.setText(String.format("%.3f s", info.getDuration()));
         familyLabel.setText(familyLabel(info));
@@ -1085,7 +1115,7 @@ public final class MainApp extends Application {
         channelsLabel.setText("-");
         durationLabel.setText("-");
         familyLabel.setText("-");
-        metadataLabel.setText("无");
+        metadataLabel.setText(translateText("无"));
     }
 
     private void refreshRecommendations(AudioInfo info) {
@@ -1389,7 +1419,7 @@ public final class MainApp extends Application {
             return;
         }
         responseCompareButton.setDisable(true);
-        responseCompareButton.setText("分析中...");
+        responseCompareButton.setText(translateText("分析中..."));
         appendLog("开始分析响应曲线: " + selected.getFileName());
 
         Task<ResponseCurve> task = new Task<>() {
@@ -1400,7 +1430,7 @@ public final class MainApp extends Application {
         };
         task.setOnSucceeded(event -> {
             responseCompareButton.setDisable(false);
-            responseCompareButton.setText("响应对比");
+            responseCompareButton.setText(translateText("响应对比"));
             updateCommandState();
             appendLog("响应曲线分析完成");
             ResponseCurve curve = task.getValue();
@@ -1410,7 +1440,7 @@ public final class MainApp extends Application {
         });
         task.setOnFailed(event -> {
             responseCompareButton.setDisable(false);
-            responseCompareButton.setText("响应对比");
+            responseCompareButton.setText(translateText("响应对比"));
             updateCommandState();
             Throwable error = task.getException();
             appendLog("响应曲线分析失败: "
@@ -1490,22 +1520,27 @@ public final class MainApp extends Application {
         return label;
     }
 
-    private static String familyLabel(AudioInfo info) {
+    private String familyLabel(AudioInfo info) {
         if (info == null) {
             return "-";
         }
+        String suffix = switch (language) {
+            case "English" -> " family";
+            case "繁體中文" -> " 家族";
+            default -> " 家族";
+        };
         if (info.is44100Family()) {
-            return "44.1k 家族";
+            return "44.1k" + suffix;
         }
         if (info.is48000Family()) {
-            return "48k 家族";
+            return "48k" + suffix;
         }
         return info.getSampleRate() + " Hz";
     }
 
-    private static String formatMetadata(Map<String, String> metadata) {
+    private String formatMetadata(Map<String, String> metadata) {
         if (metadata.isEmpty()) {
-            return "无";
+            return translateText("无");
         }
         return metadata.entrySet().stream()
                 .map(entry -> entry.getKey() + "=" + entry.getValue())
@@ -1614,7 +1649,7 @@ public final class MainApp extends Application {
         }
     }
 
-    private static final class BatchCell extends ListCell<BatchItem> {
+    private final class BatchCell extends ListCell<BatchItem> {
         private final Label status = new Label();
         private final ProgressBar progress = new ProgressBar();
 
@@ -1634,7 +1669,9 @@ public final class MainApp extends Application {
             name.getStyleClass().add("file-name");
             progress.prefWidthProperty().bind(widthProperty().multiply(0.35));
             progress.progressProperty().bind(item.progressProperty());
-            status.textProperty().bind(item.statusProperty());
+            status.textProperty().bind(Bindings.createStringBinding(
+                    () -> translateText(item.getStatus()),
+                    item.statusProperty(), languageProperty));
 
             HBox row = new HBox(10, name, status, progress);
             row.setAlignment(Pos.CENTER_LEFT);
