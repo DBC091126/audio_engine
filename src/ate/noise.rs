@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use super::config::NoiseParams;
 
 #[derive(Debug, Clone)]
@@ -23,9 +25,22 @@ impl Lcg {
     }
 
     pub fn gaussian(&mut self) -> f32 {
-        let u1 = (self.next_f32() + 1.0e-9).min(0.999_999);
-        let u2 = self.next_f32();
-        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
+        static TABLE: OnceLock<Vec<f32>> = OnceLock::new();
+        let table = TABLE.get_or_init(|| {
+            let mut rng = Lcg::new(0x5DEECE66D);
+            let mut values = Vec::with_capacity(8192);
+            for _ in 0..8192 {
+                let u1 = (rng.next_f32() + 1.0e-9).min(0.999_999);
+                let u2 = rng.next_f32();
+                values.push(
+                    (-2.0 * u1.ln()).sqrt()
+                        * (2.0 * std::f32::consts::PI * u2).cos(),
+                );
+            }
+            values
+        });
+        let index = self.next_u32() as usize % table.len();
+        table[index]
     }
 }
 
