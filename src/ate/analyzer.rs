@@ -25,11 +25,15 @@ impl AteAnalyzer {
         sample_rate: u32,
         fundamental_hz: f32,
     ) -> AnalyzerResult {
-        let fundamental = goertzel(samples, fundamental_hz, sample_rate);
-        let h2 = goertzel(samples, fundamental_hz * 2.0, sample_rate);
-        let h3 = goertzel(samples, fundamental_hz * 3.0, sample_rate);
-        let h4 = goertzel(samples, fundamental_hz * 4.0, sample_rate);
-        let h5 = goertzel(samples, fundamental_hz * 5.0, sample_rate);
+        let amplitudes =
+            goertzel_many(samples, &[fundamental_hz, fundamental_hz * 2.0, fundamental_hz * 3.0, fundamental_hz * 4.0, fundamental_hz * 5.0], sample_rate);
+        let (fundamental, h2, h3, h4, h5) = (
+            amplitudes[0],
+            amplitudes[1],
+            amplitudes[2],
+            amplitudes[3],
+            amplitudes[4],
+        );
         let noise_floor_db = estimate_noise_floor_db(samples, sample_rate, fundamental_hz);
 
         let harmonic_rms = (h2 * h2 + h3 * h3 + h4 * h4 + h5 * h5).sqrt();
@@ -67,9 +71,14 @@ impl AteAnalyzer {
     }
 
     pub fn analyze_imd(samples: &[f32], sample_rate: u32, f1: f32, f2: f32) -> f32 {
-        let diff = goertzel(samples, (f2 - f1).abs(), sample_rate);
-        let sum = goertzel(samples, f1 + f2, sample_rate);
-        let reference = goertzel(samples, f1, sample_rate).max(goertzel(samples, f2, sample_rate));
+        let amplitudes = goertzel_many(
+            samples,
+            &[(f2 - f1).abs(), f1 + f2, f1, f2],
+            sample_rate,
+        );
+        let diff = amplitudes[0];
+        let sum = amplitudes[1];
+        let reference = amplitudes[2].max(amplitudes[3]);
         if reference.abs() < 1.0e-12 {
             -200.0
         } else {
@@ -78,6 +87,39 @@ impl AteAnalyzer {
     }
 }
 
+pub fn goertzel_many(samples: &[f32], freqs: &[f32], sample_rate: u32) -> Vec<f32> {
+    if samples.is_empty() || freqs.is_empty() {
+        return vec![0.0; freqs.len()];
+    }
+
+    let mut states = freqs
+        .iter()
+        .map(|&freq| {
+            let w = 2.0 * std::f32::consts::PI * freq / sample_rate as f32;
+            let coeff = 2.0 * w.cos();
+            (coeff, 0.0f32, 0.0f32)
+        })
+        .collect::<Vec<_>>();
+
+    for &sample in samples {
+        for (coeff, s_prev, s_prev2) in &mut states {
+            let s = sample + *coeff * *s_prev - *s_prev2;
+            *s_prev2 = *s_prev;
+            *s_prev = s;
+        }
+    }
+
+    states
+        .into_iter()
+        .map(|(coeff, s_prev, s_prev2)| {
+            let power =
+                s_prev2 * s_prev2 + s_prev * s_prev - coeff * s_prev * s_prev2;
+            2.0 * power.sqrt() / samples.len() as f32
+        })
+        .collect()
+}
+
+#[cfg(test)]
 pub fn goertzel(samples: &[f32], freq_hz: f32, sample_rate: u32) -> f32 {
     if samples.is_empty() {
         return 0.0;

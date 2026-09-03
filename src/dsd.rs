@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::fs;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 
 use anyhow::{anyhow, Context};
 
@@ -38,38 +39,55 @@ pub fn encode_dsf(
     let channels = usize::from(stream.channels);
     let bytes_per_channel = stream.data.len() / channels;
     let sample_count = bytes_per_channel as u64 * 8;
-    let dsf_data = interleave_to_dsf_blocks(&stream.data, channels)?;
-    let data_chunk_size = DSF_DATA_HEADER_SIZE + dsf_data.len() as u64;
+    let blocks = bytes_per_channel.div_ceil(DSF_BLOCK_SIZE);
+    let dsf_data_len = (blocks * channels * DSF_BLOCK_SIZE) as u64;
+    let data_chunk_size = DSF_DATA_HEADER_SIZE + dsf_data_len;
     let audio_end = 28 + DSF_FMT_CHUNK_SIZE + data_chunk_size;
 
     let id3 = build_id3_tag(metadata)?;
     let metadata_ptr = if id3.is_empty() { 0 } else { audio_end };
     let total_size = audio_end + id3.len() as u64;
 
-    let mut file = Vec::with_capacity(total_size as usize);
-    file.extend_from_slice(b"DSD ");
-    file.extend_from_slice(&28u64.to_le_bytes());
-    file.extend_from_slice(&total_size.to_le_bytes());
-    file.extend_from_slice(&metadata_ptr.to_le_bytes());
+    let mut writer = BufWriter::new(
+        File::create(path).with_context(|| format!("failed to create DSF {path}"))?,
+    );
+    writer.write_all(b"DSD ")?;
+    writer.write_all(&28u64.to_le_bytes())?;
+    writer.write_all(&total_size.to_le_bytes())?;
+    writer.write_all(&metadata_ptr.to_le_bytes())?;
 
-    file.extend_from_slice(b"fmt ");
-    file.extend_from_slice(&DSF_FMT_CHUNK_SIZE.to_le_bytes());
-    file.extend_from_slice(&1u32.to_le_bytes());
-    file.extend_from_slice(&0u32.to_le_bytes());
-    file.extend_from_slice(&dsf_channel_type(stream.channels).to_le_bytes());
-    file.extend_from_slice(&u32::from(stream.channels).to_le_bytes());
-    file.extend_from_slice(&stream.sample_rate.to_le_bytes());
-    file.extend_from_slice(&1u32.to_le_bytes());
-    file.extend_from_slice(&sample_count.to_le_bytes());
-    file.extend_from_slice(&(DSF_BLOCK_SIZE as u32).to_le_bytes());
-    file.extend_from_slice(&0u32.to_le_bytes());
+    writer.write_all(b"fmt ")?;
+    writer.write_all(&DSF_FMT_CHUNK_SIZE.to_le_bytes())?;
+    writer.write_all(&1u32.to_le_bytes())?;
+    writer.write_all(&0u32.to_le_bytes())?;
+    writer.write_all(&dsf_channel_type(stream.channels).to_le_bytes())?;
+    writer.write_all(&u32::from(stream.channels).to_le_bytes())?;
+    writer.write_all(&stream.sample_rate.to_le_bytes())?;
+    writer.write_all(&1u32.to_le_bytes())?;
+    writer.write_all(&sample_count.to_le_bytes())?;
+    writer.write_all(&(DSF_BLOCK_SIZE as u32).to_le_bytes())?;
+    writer.write_all(&0u32.to_le_bytes())?;
 
-    file.extend_from_slice(b"data");
-    file.extend_from_slice(&data_chunk_size.to_le_bytes());
-    file.extend_from_slice(&dsf_data);
-    file.extend_from_slice(&id3);
+    writer.write_all(b"data")?;
+    writer.write_all(&data_chunk_size.to_le_bytes())?;
 
-    fs::write(path, file).with_context(|| format!("failed to write DSF {path}"))
+    let mut block = Vec::with_capacity(DSF_BLOCK_SIZE);
+    for block_index in 0..blocks {
+        let start = block_index * DSF_BLOCK_SIZE;
+        let end = (start + DSF_BLOCK_SIZE).min(bytes_per_channel);
+        for channel in 0..channels {
+            let channel_offset = channel * bytes_per_channel;
+            block.clear();
+            for &byte in &stream.data[channel_offset + start..channel_offset + end] {
+                block.push(reverse_bits(byte));
+            }
+            block.resize(DSF_BLOCK_SIZE, 0);
+            writer.write_all(&block)?;
+        }
+    }
+    writer.write_all(&id3)?;
+    writer.flush()?;
+    Ok(())
 }
 
 /// Write a DSDIFF/DFF container around a packed DSD stream.
@@ -80,10 +98,6 @@ pub fn encode_dff(
 ) -> Result<(), anyhow::Error> {
     validate_stream(stream)?;
 
-    let mut root = b"DSD ".to_vec();
-
-    append_dff_chunk(&mut root, b"FVER", &0x0105_0000u32.to_be_bytes());
-
     let mut prop = b"SND ".to_vec();
     append_dff_chunk(&mut prop, b"FS  ", &stream.sample_rate.to_be_bytes());
     append_dff_chunk(&mut prop, b"CHNL", &build_channel_chunk(stream.channels));
@@ -93,20 +107,33 @@ pub fn encode_dff(
     cmpr.extend_from_slice(&14u32.to_be_bytes());
     cmpr.extend_from_slice(b"not compressed");
     append_dff_chunk(&mut prop, b"CMPR", &cmpr);
-    append_dff_chunk(&mut root, b"PROP", &prop);
-
-    append_dff_chunk(&mut root, b"DSD ", &stream.data);
 
     let diin = build_diin(metadata);
+
+    let fver_chunk = dff_chunk_padded_len(4);
+    let prop_chunk = dff_chunk_padded_len(prop.len());
+    let dsd_chunk = dff_chunk_padded_len(stream.data.len());
+    let diin_chunk = if diin.is_empty() {
+        0
+    } else {
+        dff_chunk_padded_len(diin.len())
+    };
+    let root_len = 4 + fver_chunk + prop_chunk + dsd_chunk + diin_chunk;
+
+    let mut writer = BufWriter::new(
+        File::create(path).with_context(|| format!("failed to create DFF {path}"))?,
+    );
+    writer.write_all(b"FRM8")?;
+    writer.write_all(&root_len.to_be_bytes())?;
+    writer.write_all(b"DSD ")?;
+    write_dff_chunk(&mut writer, b"FVER", &0x0105_0000u32.to_be_bytes())?;
+    write_dff_chunk(&mut writer, b"PROP", &prop)?;
+    write_dff_chunk(&mut writer, b"DSD ", &stream.data)?;
     if !diin.is_empty() {
-        append_dff_chunk(&mut root, b"DIIN", &diin);
+        write_dff_chunk(&mut writer, b"DIIN", &diin)?;
     }
-
-    let mut file = b"FRM8".to_vec();
-    file.extend_from_slice(&(root.len() as u64).to_be_bytes());
-    file.extend_from_slice(&root);
-
-    fs::write(path, file).with_context(|| format!("failed to write DFF {path}"))
+    writer.flush()?;
+    Ok(())
 }
 
 fn validate_stream(stream: &DsdStream) -> Result<(), anyhow::Error> {
@@ -141,27 +168,26 @@ fn dsf_channel_type(channels: u16) -> u32 {
     }
 }
 
-fn interleave_to_dsf_blocks(data: &[u8], channels: usize) -> Result<Vec<u8>, anyhow::Error> {
-    let bytes_per_channel = data.len() / channels;
-    let blocks = bytes_per_channel.div_ceil(DSF_BLOCK_SIZE);
-    let mut out = Vec::with_capacity(blocks * channels * DSF_BLOCK_SIZE);
-
-    for block in 0..blocks {
-        let start = block * DSF_BLOCK_SIZE;
-        let end = (start + DSF_BLOCK_SIZE).min(bytes_per_channel);
-        for channel in 0..channels {
-            let channel_offset = channel * bytes_per_channel;
-            for byte in &data[channel_offset + start..channel_offset + end] {
-                out.push(reverse_bits(*byte));
-            }
-            out.resize(out.len() + DSF_BLOCK_SIZE - (end - start), 0);
-        }
-    }
-    Ok(out)
-}
-
 fn reverse_bits(byte: u8) -> u8 {
     byte.reverse_bits()
+}
+
+fn dff_chunk_padded_len(data_len: usize) -> u64 {
+    12 + data_len as u64 + (data_len % 2) as u64
+}
+
+fn write_dff_chunk<W: Write>(
+    writer: &mut W,
+    id: &[u8; 4],
+    data: &[u8],
+) -> Result<(), anyhow::Error> {
+    writer.write_all(id)?;
+    writer.write_all(&(data.len() as u64).to_be_bytes())?;
+    writer.write_all(data)?;
+    if data.len() % 2 == 1 {
+        writer.write_all(&[0])?;
+    }
+    Ok(())
 }
 
 fn append_dff_chunk(out: &mut Vec<u8>, id: &[u8; 4], data: &[u8]) {
