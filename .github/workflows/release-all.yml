@@ -44,6 +44,16 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.m2/repository
+          key: ${{ runner.os }}-cargo-maven-${{ hashFiles('**/Cargo.lock', '**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-maven-
+
       - name: Install native build dependencies
         shell: bash
         run: |
@@ -120,6 +130,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            C:\Users\runneradmin\.cargo\registry
+            C:\Users\runneradmin\.cargo\git
+            C:\Users\runneradmin\.m2\repository
+          key: ${{ runner.os }}-cargo-maven-${{ hashFiles('**/Cargo.lock', '**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-maven-
 
       - name: Remove Linux-only Cargo environment
         run: rm -f .cargo/config.toml
