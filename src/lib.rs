@@ -1,5 +1,6 @@
 pub mod encoder;
 pub mod ffi;
+#[cfg(feature = "ffmpeg")]
 mod ffmpeg_decoder;
 mod symphonia_decoder;
 

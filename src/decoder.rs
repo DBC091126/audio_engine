@@ -2,7 +2,9 @@ use std::path::Path;
 
 use anyhow::{anyhow, Context};
 
-use crate::{ffmpeg_decoder, symphonia_decoder};
+#[cfg(feature = "ffmpeg")]
+use crate::ffmpeg_decoder;
+use crate::symphonia_decoder;
 
 /// Fully decoded, interleaved audio in the Float32 domain.
 #[derive(Debug, Clone, Default)]
@@ -27,14 +29,25 @@ pub fn decode_file(path: &str) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
 
     if matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus") {
+        #[cfg(feature = "ffmpeg")]
         return ffmpeg_decoder::decode(path)
             .with_context(|| format!("ffmpeg decoder failed for {path}"));
+        #[cfg(not(feature = "ffmpeg"))]
+        return Err(anyhow!(
+            "FFmpeg-dependent format {} is unavailable in this build",
+            ext
+        ));
     }
 
     match symphonia_decoder::decode(path) {
         Ok(data) => Ok(data),
+        #[cfg(feature = "ffmpeg")]
         Err(symphonia_err) => ffmpeg_decoder::decode(path).with_context(|| {
             format!("symphonia failed ({symphonia_err:#}); ffmpeg fallback also failed for {path}")
+        }),
+        #[cfg(not(feature = "ffmpeg"))]
+        Err(symphonia_err) => Err(symphonia_err).with_context(|| {
+            format!("symphonia decode failed for {path}")
         }),
     }
 }
@@ -46,11 +59,26 @@ pub(crate) fn decode_preview_seconds(
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
     let ffmpeg_first = matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus");
     let sample_rate = if ffmpeg_first {
-        ffmpeg_decoder::probe_sample_rate(path)?
+        #[cfg(feature = "ffmpeg")]
+        {
+            ffmpeg_decoder::probe_sample_rate(path)?
+        }
+        #[cfg(not(feature = "ffmpeg"))]
+        {
+            return Err(anyhow!(
+                "FFmpeg-dependent format {} is unavailable in this build",
+                ext
+            ));
+        }
     } else {
         match symphonia_decoder::probe(path) {
             Ok(data) if data.sample_rate > 0 => data.sample_rate,
+            #[cfg(feature = "ffmpeg")]
             _ => ffmpeg_decoder::probe_sample_rate(path)?,
+            #[cfg(not(feature = "ffmpeg"))]
+            _ => return Err(anyhow!(
+                "cannot determine sample rate for preview: {path}"
+            )),
         }
     };
     if sample_rate == 0 {
@@ -59,16 +87,31 @@ pub(crate) fn decode_preview_seconds(
 
     let max_frames = ((f64::from(sample_rate)) * seconds).max(1.0) as usize;
     if ffmpeg_first {
-        return ffmpeg_decoder::decode_preview(path, max_frames)
-            .with_context(|| format!("ffmpeg preview decoder failed for {path}"));
+        #[cfg(feature = "ffmpeg")]
+        {
+            return ffmpeg_decoder::decode_preview(path, max_frames)
+                .with_context(|| format!("ffmpeg preview decoder failed for {path}"));
+        }
+        #[cfg(not(feature = "ffmpeg"))]
+        {
+            return Err(anyhow!(
+                "FFmpeg-dependent format {} is unavailable in this build",
+                ext
+            ));
+        }
     }
 
     match symphonia_decoder::decode_preview(path, max_frames) {
         Ok(data) => Ok(data),
+        #[cfg(feature = "ffmpeg")]
         Err(symphonia_err) => ffmpeg_decoder::decode_preview(path, max_frames).with_context(|| {
             format!(
                 "symphonia preview failed ({symphonia_err:#}); ffmpeg fallback also failed for {path}"
             )
+        }),
+        #[cfg(not(feature = "ffmpeg"))]
+        Err(symphonia_err) => Err(symphonia_err).with_context(|| {
+            format!("symphonia preview failed for {path}")
         }),
     }
 }
