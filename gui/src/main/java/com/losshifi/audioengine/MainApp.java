@@ -220,7 +220,8 @@ public final class MainApp extends Application {
             Map.entry("交越深度", "Crossover"),
             Map.entry("偶次谐波", "Even Harmonics"),
             Map.entry("奇次谐波", "Odd Harmonics"),
-            Map.entry("重置自定义", "Reset Custom")
+            Map.entry("重置自定义", "Reset Custom"),
+            Map.entry("AUTO", "Auto")
     );
     private static final Map<String, String> HANT_TEXT = Map.ofEntries(
             Map.entry("主题", "主題"),
@@ -280,7 +281,8 @@ public final class MainApp extends Application {
             Map.entry("交越深度", "交越深度"),
             Map.entry("偶次谐波", "偶次諧波"),
             Map.entry("奇次谐波", "奇次諧波"),
-            Map.entry("重置自定义", "重設自訂")
+            Map.entry("重置自定义", "重設自訂"),
+            Map.entry("AUTO", "自動")
     );
     private static final Map<String, String> HANT_EN_TEXT = Map.ofEntries(
             Map.entry("AUDIO ENGINE", "音訊引擎"),
@@ -340,6 +342,7 @@ public final class MainApp extends Application {
             Map.entry("LANG: 繁", "语言：繁"),
             Map.entry("LANG: 简", "语言：简"),
             Map.entry("BACK", "返回"),
+            Map.entry("AUTO", "自动"),
             Map.entry("Audio Engine", "音频引擎")
     );
     private final ExecutorService infoExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -585,6 +588,7 @@ public final class MainApp extends Application {
         saveConfig();
         applyLanguageToTextNodes();
         stage.setTitle(translateText("Audio Engine"));
+        updateAteNoiseLabel();
         if (currentInfo != null) {
             showInfo(currentInfo);
         } else {
@@ -860,10 +864,7 @@ public final class MainApp extends Application {
         ateIntensitySlider.valueProperty().addListener((obs, old, value) ->
                 ateIntensityLabel.setText(String.format("%.2f", value.doubleValue())));
         ateIntensityLabel.setText("0.50");
-        ateNoiseSlider.valueProperty().addListener((obs, old, value) -> {
-            double noise = value.doubleValue();
-            ateNoiseLabel.setText(noise >= -0.01 ? "AUTO" : String.format("%.0f dB", noise));
-        });
+        ateNoiseSlider.valueProperty().addListener((obs, old, value) -> updateAteNoiseLabel());
         ateJitterSlider.valueProperty().addListener((obs, old, value) ->
                 ateJitterLabel.setText(String.format("%.0f ps", value.doubleValue())));
         atePhaseSlider.valueProperty().addListener((obs, old, value) ->
@@ -889,6 +890,7 @@ public final class MainApp extends Application {
         responseCompareButton.getStyleClass().add("primary-button");
         responseCompareButton.setMaxWidth(Double.MAX_VALUE);
         responseCompareButton.setOnAction(event -> analyzeResponseCurve());
+        configureAteStyleCells();
 
         VBox panel = new VBox(12,
                 sectionTitle("ATE 操作"),
@@ -909,6 +911,36 @@ public final class MainApp extends Application {
                 responseCompareButton);
         panel.setPadding(new Insets(12));
         return panel;
+    }
+
+    private void configureAteStyleCells() {
+        ateStyleBox.setCellFactory(list -> new ListCell<>() {
+            {
+                languageProperty.addListener((obs, old, value) -> updateItem(getItem(), isEmpty()));
+            }
+
+            @Override
+            protected void updateItem(ConversionSettings.AteStyle item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.display(language));
+            }
+        });
+        ateStyleBox.setButtonCell(new ListCell<>() {
+            {
+                languageProperty.addListener((obs, old, value) -> updateItem(getItem(), isEmpty()));
+            }
+
+            @Override
+            protected void updateItem(ConversionSettings.AteStyle item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.display(language));
+            }
+        });
+    }
+
+    private void updateAteNoiseLabel() {
+        double noise = ateNoiseSlider.getValue();
+        ateNoiseLabel.setText(noise >= -0.01 ? translateText("AUTO") : String.format("%.0f dB", noise));
     }
 
     private Node buildDetailsPanel() {

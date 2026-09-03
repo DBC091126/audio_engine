@@ -76,6 +76,40 @@ public final class ConversionSettings {
         public String toString() {
             return label;
         }
+
+        public String display(String language) {
+            if ("English".equals(language)) {
+                return switch (this) {
+                    case TUBE -> "Tube";
+                    case VINYL -> "Vinyl";
+                    case HYBRID -> "Hybrid Tube";
+                    case A_CLASS_SE -> "Class A SE";
+                    case A_CLASS_PP -> "Class A PP";
+                    case AB_CLASS -> "Class AB";
+                    case D_CLASS -> "Class D";
+                    case VINTAGE_SOLID_STATE -> "Vintage Solid State";
+                    case TUBE_PUSH_PULL -> "Tube Push-Pull";
+                    case FERRITE_TAPE -> "Ferrite Tape";
+                    case PHONO_STAGE -> "Phono Stage";
+                };
+            }
+            if ("繁體中文".equals(language)) {
+                return switch (this) {
+                    case TUBE -> "膽機";
+                    case VINYL -> "黑膠";
+                    case HYBRID -> "混合膽味";
+                    case A_CLASS_SE -> "A類石機-單端";
+                    case A_CLASS_PP -> "A類石機-推挽";
+                    case AB_CLASS -> "AB類石機";
+                    case D_CLASS -> "高端D類";
+                    case VINTAGE_SOLID_STATE -> "老式AB/B石機";
+                    case TUBE_PUSH_PULL -> "膽機推挽";
+                    case FERRITE_TAPE -> "鐵氧體磁帶";
+                    case PHONO_STAGE -> "唱放";
+                };
+            }
+            return label;
+        }
     }
 
     private OutputMode mode = OutputMode.PCM;
