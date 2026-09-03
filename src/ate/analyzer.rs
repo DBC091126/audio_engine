@@ -154,6 +154,11 @@ pub fn analyze_spectrum_mono(samples: &[f32], sample_rate: u32, points: usize) -
     let scale = (n as f64).powi(2);
     let bin_width = sample_rate as f64 / n as f64;
     let usable = n / 2 + 1;
+    let mut power_spectrum = vec![0.0f64; usable];
+    for bin in 0..usable {
+        power_spectrum[bin] =
+            (re[bin] * re[bin] + im[bin] * im[bin]) * 2.0 / scale;
+    }
 
     for point in 0..points {
         let center = f64::from(centers[point]);
@@ -177,8 +182,7 @@ pub fn analyze_spectrum_mono(samples: &[f32], sample_rate: u32, points: usize) -
             if freq < lower || freq >= upper {
                 continue;
             }
-            let power = (re[bin] * re[bin] + im[bin] * im[bin]) * 2.0 / scale;
-            sum += power;
+            sum += power_spectrum[bin];
             count += 1;
         }
         let rms = if count == 0 {

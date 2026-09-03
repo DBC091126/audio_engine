@@ -53,7 +53,7 @@ call mvn -q -DskipTests package -Daudio.engine.native.dir="%NATIVE_DIR%"
 if errorlevel 1 exit /b 1
 popd
 
-set "DIST=%ROOT%\gui\target\audio-engine-gui-0.1.0-dist"
+set "DIST=%ROOT%\gui\target\audio-engine-gui-1.1.0-dist"
 set "OUT=%ROOT%\dist"
 if exist "%OUT%" rmdir /s /q "%OUT%"
 if not exist "%OUT%" mkdir "%OUT%"
@@ -69,8 +69,8 @@ if defined PACKAGE_TYPE (
   --input "%DIST%" ^
   --dest "%OUT%" ^
   --name "AudioEngine" ^
-  --app-version "0.1.0" ^
-  --main-jar "audio-engine-gui-0.1.0.jar" ^
+  --app-version "1.1.0" ^
+  --main-jar "audio-engine-gui-1.1.0.jar" ^
   --main-class "com.losshifi.audioengine.Main" ^
   --module-path "%DIST%" ^
   --add-modules "javafx.controls,java.logging,java.naming" ^

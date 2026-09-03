@@ -75,12 +75,22 @@ jobs:
           test -n "$package"
           if [[ "${{ matrix.os }}" == macos-* ]]; then
             ext="${package##*.}"
-            renamed="dist/audio-engine_0.1.0_${{ matrix.suffix }}.$ext"
+            renamed="dist/audio-engine_1.1.0_${{ matrix.suffix }}.$ext"
             mv "$package" "$renamed"
             package="$renamed"
           fi
-          gh release upload v0.1.0 "$package" \
+          gh release upload v1.1.0 "$package" \
             --repo DBC091126/audio_engine --clobber
+          checksum="$package.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$package" > "$checksum"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$package" > "$checksum"
+          fi
+          if [ -f "$checksum" ]; then
+            gh release upload v1.1.0 "$checksum" \
+              --repo DBC091126/audio_engine --clobber
+          fi
 
   windows:
     runs-on: windows-latest
@@ -138,13 +148,13 @@ jobs:
         run: |
           "$JAVA_HOME/bin/jpackage" \
             --type exe \
-            --input gui/target/audio-engine-gui-0.1.0-dist \
+            --input gui/target/audio-engine-gui-1.1.0-dist \
             --dest dist \
             --name AudioEngine \
-            --app-version 0.1.0 \
-            --main-jar audio-engine-gui-0.1.0.jar \
+            --app-version 1.1.0 \
+            --main-jar audio-engine-gui-1.1.0.jar \
             --main-class com.losshifi.audioengine.Main \
-            --module-path gui/target/audio-engine-gui-0.1.0-dist \
+            --module-path gui/target/audio-engine-gui-1.1.0-dist \
             --add-modules javafx.controls,java.logging,java.naming \
             --win-menu \
             --win-shortcut
@@ -157,5 +167,15 @@ jobs:
           ls -lh dist
           installer=$(find dist -maxdepth 1 -name '*.exe' -print -quit)
           test -n "$installer"
-          gh release upload v0.1.0 "$installer" \
+          gh release upload v1.1.0 "$installer" \
             --repo DBC091126/audio_engine --clobber
+          checksum="$installer.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$installer" > "$checksum"
+          elif command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$installer" > "$checksum"
+          fi
+          if [ -f "$checksum" ]; then
+            gh release upload v1.1.0 "$checksum" \
+              --repo DBC091126/audio_engine --clobber
+          fi

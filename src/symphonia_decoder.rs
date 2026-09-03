@@ -60,6 +60,7 @@ fn decode_with_limit(
         .find(|track| track.codec_params.codec != CODEC_TYPE_NULL)
         .ok_or_else(|| anyhow!("no supported audio track in {path}"))?;
     let bits_per_sample = track.codec_params.bits_per_sample.unwrap_or(0) as u16;
+    let estimated_frames = track.codec_params.n_frames;
 
     let track_id = track.id;
     let mut decoder = symphonia::default::get_codecs()
@@ -102,6 +103,13 @@ fn decode_with_limit(
                 });
                 buffer.copy_interleaved_ref(decoded);
                 let decoded_samples = buffer.samples();
+                if samples.capacity() == 0 {
+                    if let Some(frames) = estimated_frames {
+                        let frames = usize::try_from(frames).unwrap_or(usize::MAX);
+                        let capacity = frames.saturating_mul(usize::from(channels));
+                        let _ = samples.try_reserve(capacity);
+                    }
+                }
                 let remaining = max_frames
                     .map(|frames| {
                         usize::from(channels)

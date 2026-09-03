@@ -110,6 +110,16 @@ fn decode_with_limit(
         return Err(anyhow!("ffmpeg reported zero audio channels for {path}"));
     };
 
+    let mut samples: Vec<f32> = Vec::new();
+    if let Some(capacity) = estimate_sample_capacity(
+        stream.frames(),
+        context.duration(),
+        sample_rate,
+        channels,
+    ) {
+        let _ = samples.try_reserve(capacity);
+    }
+
     let mut resampler = ResamplingContext::get(
         decoder.format(),
         input_layout,
@@ -120,7 +130,6 @@ fn decode_with_limit(
     )
     .with_context(|| format!("ffmpeg resampler setup failed for {path}"))?;
 
-    let mut samples: Vec<f32> = Vec::new();
     let mut decoded_frame = AudioFrame::empty();
     let mut resampled_frame = AudioFrame::empty();
     let max_samples = max_frames.map(|frames| frames.saturating_mul(usize::from(channels)));
@@ -177,6 +186,27 @@ fn decode_with_limit(
         total_frames,
         metadata,
     })
+}
+
+fn estimate_sample_capacity(
+    stream_frames: i64,
+    context_duration_us: i64,
+    sample_rate: u32,
+    channels: u16,
+) -> Option<usize> {
+    let estimated_frames = if stream_frames > 0 {
+        u64::try_from(stream_frames).ok()?
+    } else if context_duration_us > 0 {
+        let duration_us = u64::try_from(context_duration_us).ok()?;
+        duration_us
+            .saturating_mul(u64::from(sample_rate))
+            .saturating_div(1_000_000)
+    } else {
+        return None;
+    };
+
+    let frames = usize::try_from(estimated_frames).unwrap_or(usize::MAX);
+    Some(frames.saturating_mul(usize::from(channels)))
 }
 
 fn flush_resampler(

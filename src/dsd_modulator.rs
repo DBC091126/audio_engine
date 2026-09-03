@@ -95,15 +95,16 @@ pub fn pcm_to_dsd_with_family(
 
     let frames = pcm.len() / usize::from(channels);
     let cutoff = dsd_target.cutoff_hz();
-    let mut channel_bytes = Vec::with_capacity(usize::from(channels));
-
-    for channel in 0..usize::from(channels) {
-        let mut channel_pcm = Vec::with_capacity(frames);
-        for frame in 0..frames {
-            channel_pcm.push(pcm[frame * usize::from(channels) + channel]);
-        }
-        channel_bytes.push(modulate_channel(&channel_pcm, pcm_rate, dsd_rate, cutoff)?);
-    }
+    let channel_bytes = (0..usize::from(channels))
+        .into_par_iter()
+        .map(|channel| {
+            let mut channel_pcm = Vec::with_capacity(frames);
+            for frame in 0..frames {
+                channel_pcm.push(pcm[frame * usize::from(channels) + channel]);
+            }
+            modulate_channel(&channel_pcm, pcm_rate, dsd_rate, cutoff)
+        })
+        .collect::<Result<Vec<Vec<u8>>, String>>()?;
 
     let bytes_per_channel = channel_bytes
         .first()
@@ -144,6 +145,10 @@ fn validate_pcm_input(pcm: &[f32], pcm_rate: u32, channels: u16) -> Result<(), S
 }
 
 fn pcm_family_base(pcm_rate: u32) -> Result<u32, String> {
+    if pcm_rate == 0 {
+        return Err("PCM 采样率必须大于 0".to_string());
+    }
+
     if pcm_rate % 44_100 == 0 {
         Ok(44_100)
     } else if pcm_rate % 48_000 == 0 {

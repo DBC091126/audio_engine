@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 pub fn upsample_channel(input: &[f32], factor: usize, _sample_rate: u32) -> Vec<f32> {
     if factor <= 1 {
         return input.to_vec();
@@ -60,22 +62,23 @@ pub fn make_lowpass_fir(taps: usize, cutoff: f32, gain: f32) -> Vec<f32> {
 
 pub fn fir_filter(input: &[f32], coeffs: &[f32]) -> Vec<f32> {
     let half = coeffs.len() as isize / 2;
-    let mut out = vec![0.0f32; input.len()];
-
-    for i in 0..input.len() {
-        let mut sum = 0.0f32;
-        for (j, &coeff) in coeffs.iter().enumerate() {
-            let index = i as isize + j as isize - half;
-            let value = if index < 0 || index >= input.len() as isize {
-                0.0
-            } else {
-                input[index as usize]
-            };
-            sum += coeff * value;
-        }
-        out[i] = sum;
-    }
-    out
+    input
+        .par_iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let mut sum = 0.0f32;
+            for (j, &coeff) in coeffs.iter().enumerate() {
+                let index = i as isize + j as isize - half;
+                let value = if index < 0 || index >= input.len() as isize {
+                    0.0
+                } else {
+                    input[index as usize]
+                };
+                sum += coeff * value;
+            }
+            sum
+        })
+        .collect()
 }
 
 pub fn apply_dc_block(samples: &[f32], sample_rate: u32) -> Vec<f32> {

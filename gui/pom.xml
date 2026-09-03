@@ -6,7 +6,7 @@
 
   <groupId>com.losshifi</groupId>
   <artifactId>audio-engine-gui</artifactId>
-  <version>0.1.0</version>
+  <version>1.1.0</version>
   <name>audio-engine-gui</name>
 
   <properties>

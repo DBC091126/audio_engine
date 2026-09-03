@@ -20,8 +20,13 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!(
-            "usage: audio_engine <input...>\n       audio_engine --all\n       audio_engine --pcm-test\n       audio_engine --dsd-test\n       audio_engine --resample-test\n       audio_engine --dsd-modulator-test\n       audio_engine --ate-test\n       audio_engine --ffi-test\n       audio_engine -i <input> -o <output.wav/flac> -r <rate> -b <bits>\n       audio_engine -i <input> -o <output.dsf/dff> -d <64|128|256>"
+            "usage: audio_engine <input...>\n       audio_engine --version\n       audio_engine --all\n       audio_engine --pcm-test\n       audio_engine --dsd-test\n       audio_engine --resample-test\n       audio_engine --dsd-modulator-test\n       audio_engine --ate-test\n       audio_engine --ffi-test\n       audio_engine -i <input> -o <output.wav/flac> -r <rate> -b <bits>\n       audio_engine -i <input> -o <output.dsf/dff> -d <64|128|256>"
         );
+        return Ok(());
+    }
+
+    if args[1] == "--version" {
+        println!("audio_engine {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 

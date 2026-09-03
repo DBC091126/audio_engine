@@ -355,16 +355,17 @@ fn process_pcm_file(
         _ => return Err(anyhow!("invalid PCM output format")),
     };
 
-    let mut pcm = if audio.sample_rate == target_rate {
-        audio.samples.clone()
+    let resampled = if audio.sample_rate == target_rate {
+        None
     } else {
-        resample_to_vec(
+        Some(resample_to_vec(
             &audio.samples,
             audio.sample_rate,
             target_rate,
             audio.channels,
-        )?
+        )?)
     };
+    let pcm = resampled.as_deref().unwrap_or(&audio.samples);
 
     if ate_enable != 0 {
         if audio.channels != 2 {
@@ -373,19 +374,40 @@ fn process_pcm_file(
         let base = family_base(target_rate)?;
         let config = ate_config(ate_enable, ate_style, ate_intensity, target_rate);
         let mut processed = vec![0.0f32; pcm.len()];
-        process_ate(&pcm, &mut processed, &config, target_rate, base, None);
-        pcm = processed;
+        process_ate(pcm, &mut processed, &config, target_rate, base, None);
+        write_pcm_writer(output, target_rate, bit_depth, format, &audio.metadata, audio.channels, &processed)?;
+        return Ok(());
     }
 
-    let mut writer = PcmStreamWriter::create(
+    write_pcm_writer(
         output,
         target_rate,
-        audio.channels,
         bit_depth,
         format,
         &audio.metadata,
+        audio.channels,
+        pcm,
+    )
+}
+
+fn write_pcm_writer(
+    output: &str,
+    target_rate: u32,
+    bit_depth: u16,
+    format: PcmFormat,
+    metadata: &std::collections::HashMap<String, String>,
+    channels: u16,
+    pcm: &[f32],
+) -> Result<(), Error> {
+    let mut writer = PcmStreamWriter::create(
+        output,
+        target_rate,
+        channels,
+        bit_depth,
+        format,
+        metadata,
     )?;
-    for block in pcm.chunks(PROCESS_BLOCK_FRAMES * usize::from(audio.channels)) {
+    for block in pcm.chunks(PROCESS_BLOCK_FRAMES * usize::from(channels)) {
         writer.write_block(block)?;
     }
     writer.finish()
@@ -404,29 +426,31 @@ fn process_dsd_file(
     let working_rate = dsd_working_rate(audio.sample_rate)?;
     let mode = dsd_mode_from_u32(u32::from(dsd_mode))?;
 
-    let mut pcm = if working_rate == audio.sample_rate {
-        audio.samples.clone()
+    let resampled = if working_rate == audio.sample_rate {
+        None
     } else {
-        resample_to_vec(
+        Some(resample_to_vec(
             &audio.samples,
             audio.sample_rate,
             working_rate,
             audio.channels,
-        )?
+        )?)
     };
+    let pcm = resampled.as_deref().unwrap_or(&audio.samples);
 
-    if ate_enable != 0 {
+    let dsd = if ate_enable != 0 {
         if audio.channels != 2 {
             return Err(anyhow!("ATE currently requires stereo input"));
         }
         let base = family_base(working_rate)?;
         let config = ate_config(ate_enable, ate_style, ate_intensity, working_rate);
         let mut processed = vec![0.0f32; pcm.len()];
-        process_ate(&pcm, &mut processed, &config, working_rate, base, None);
-        pcm = processed;
-    }
+        process_ate(pcm, &mut processed, &config, working_rate, base, None);
+        pcm_to_dsd(&processed, working_rate, audio.channels, mode).map_err(Error::msg)?
+    } else {
+        pcm_to_dsd(pcm, working_rate, audio.channels, mode).map_err(Error::msg)?
+    };
 
-    let dsd = pcm_to_dsd(&pcm, working_rate, audio.channels, mode).map_err(Error::msg)?;
     match output_format {
         2 => encode_dsf(output, &dsd, &audio.metadata),
         3 => encode_dff(output, &dsd, &audio.metadata),

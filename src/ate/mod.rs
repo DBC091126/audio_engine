@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 mod analyzer;
 mod config;
 mod jitter;
@@ -210,19 +212,23 @@ fn apply_linear_stage(samples: &[f32], sample_rate: u32, preset: AtePreset) -> V
 }
 
 fn deinterleave(input: &[f32], channel: usize, frames: usize) -> Vec<f32> {
-    let mut out = Vec::with_capacity(frames);
-    for frame in 0..frames {
-        out.push(input[frame * 2 + channel]);
-    }
-    out
+    input
+        .par_chunks_exact(2)
+        .take(frames)
+        .map(|frame| frame[channel])
+        .collect()
 }
 
 fn interleave(left: &[f32], right: &[f32], output: &mut [f32]) {
     let frames = left.len().min(right.len()).min(output.len() / 2);
-    for frame in 0..frames {
-        output[frame * 2] = left[frame];
-        output[frame * 2 + 1] = right[frame];
-    }
+    let front = &mut output[..frames * 2];
+    front
+        .par_chunks_exact_mut(2)
+        .enumerate()
+        .for_each(|(frame, pair)| {
+            pair[0] = left[frame];
+            pair[1] = right[frame];
+        });
 }
 
 #[cfg(test)]
