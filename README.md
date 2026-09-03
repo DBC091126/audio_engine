@@ -216,6 +216,12 @@ bash scripts/test_gui.sh
 `scripts/test_all_formats.sh` asserts that Opus decodes to the expected frame
 count, which guards the FFmpeg resampler flush logic.
 
+Run the test suite and the ATE benchmark together:
+
+```bash
+bash scripts/bench.sh
+```
+
 ## Layout
 
 ```text
