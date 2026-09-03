@@ -12,6 +12,10 @@ use crate::decoder::AudioData;
 static FFMPEG_INIT: Once = Once::new();
 
 pub(crate) fn probe_sample_rate(path: &str) -> Result<u32, anyhow::Error> {
+    Ok(probe_info(path)?.sample_rate)
+}
+
+pub(crate) fn probe_info(path: &str) -> Result<AudioData, anyhow::Error> {
     let mut init_error: Option<ffmpeg_next::Error> = None;
     FFMPEG_INIT.call_once(|| {
         if let Err(err) = ffmpeg_next::init() {
@@ -37,7 +41,40 @@ pub(crate) fn probe_sample_rate(path: &str) -> Result<u32, anyhow::Error> {
     if sample_rate == 0 {
         return Err(anyhow!("ffmpeg reported zero sample rate for {path}"));
     }
-    Ok(sample_rate)
+    let channel_layout = decoder.channel_layout();
+    let channels = if channel_layout.channels() > 0 {
+        channel_layout.channels() as u16
+    } else {
+        decoder.channels().into()
+    };
+    if channels == 0 {
+        return Err(anyhow!("ffmpeg reported zero channels for {path}"));
+    }
+
+    let total_frames = if stream.frames() > 0 {
+        stream.frames() as u64
+    } else if context.duration() > 0 {
+        context.duration() as u64 * u64::from(sample_rate) / 1_000_000
+    } else {
+        0
+    };
+
+    let mut metadata = HashMap::new();
+    for (key, value) in context.metadata().iter() {
+        metadata.insert(key.to_string(), value.to_string());
+    }
+    for (key, value) in stream.metadata().iter() {
+        metadata.insert(key.to_string(), value.to_string());
+    }
+
+    Ok(AudioData {
+        samples: Vec::new(),
+        sample_rate,
+        channels,
+        bits_per_sample: 0,
+        total_frames,
+        metadata,
+    })
 }
 
 pub(crate) fn decode(path: &str) -> Result<AudioData, anyhow::Error> {

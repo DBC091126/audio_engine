@@ -124,7 +124,21 @@ pub(crate) fn probe_file(path: &str) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
 
     if matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus") {
-        return decode_file(path);
+        #[cfg(feature = "ffmpeg")]
+        {
+            return match ffmpeg_decoder::probe_info(path) {
+                Ok(data) if data.total_frames > 0 => Ok(data),
+                Ok(_) => decode_file(path),
+                Err(_) => decode_file(path),
+            };
+        }
+        #[cfg(not(feature = "ffmpeg"))]
+        {
+            return Err(anyhow!(
+                "FFmpeg-dependent format {} is unavailable in this build",
+                ext
+            ));
+        }
     }
 
     match symphonia_decoder::probe(path) {
