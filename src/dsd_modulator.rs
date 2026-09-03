@@ -2,8 +2,6 @@ use rayon::prelude::*;
 
 use crate::dsd::DsdStream;
 
-const DSD_PARALLEL_BLOCK_SAMPLES: usize = 4096;
-
 /// DSD output mode. The actual DSD bit rate is derived from the PCM family:
 /// 44.1k family uses 2.8224/5.6448/11.2896 MHz and 48k family uses
 /// 3.072/6.144/12.288 MHz.
@@ -175,15 +173,25 @@ fn modulate_channel(
     let mut filter = ButterLowpass::new(working_rate, cutoff_hz);
     filter.process(&mut working);
 
-    let oversampled = zero_fill(&working, working_ratio);
-    if oversampled.len() % 8 != 0 {
+    let total_samples = working
+        .len()
+        .checked_mul(working_ratio)
+        .ok_or_else(|| "DSD 过采样样本数溢出".to_string())?;
+    if total_samples % 8 != 0 {
         return Err(format!(
             "过采样样本数 {} 不是 8 的整数倍，无法打包 1-bit 字节流",
-            oversampled.len()
+            total_samples
         ));
     }
 
-    Ok(pack_dsd_parallel(&oversampled))
+    let mut packer = DsdPacker::with_capacity(total_samples / 8);
+    for &sample in &working {
+        packer.push(sample);
+        for _ in 0..working_ratio - 1 {
+            packer.push(0.0);
+        }
+    }
+    Ok(packer.finish())
 }
 
 fn internal_src_rate(pcm_rate: u32, dsd_rate: u32) -> u32 {
@@ -192,15 +200,6 @@ fn internal_src_rate(pcm_rate: u32, dsd_rate: u32) -> u32 {
     } else {
         pcm_rate
     }
-}
-
-fn zero_fill(input: &[f32], ratio: usize) -> Vec<f32> {
-    let mut out = Vec::with_capacity(input.len() * ratio);
-    for &sample in input {
-        out.push(sample);
-        out.resize(out.len() + ratio - 1, 0.0);
-    }
-    out
 }
 
 fn zero_fill_2x(input: &[f32]) -> Vec<f32> {
@@ -212,44 +211,53 @@ fn zero_fill_2x(input: &[f32]) -> Vec<f32> {
     out
 }
 
-fn pack_dsd_parallel(samples: &[f32]) -> Vec<u8> {
-    let blocks: Vec<Vec<u8>> = samples
-        .par_chunks(DSD_PARALLEL_BLOCK_SAMPLES)
-        .map(pack_dsd_block)
-        .collect();
-    blocks.into_iter().flatten().collect()
+struct DsdPacker {
+    error: [f32; 5],
+    bytes: Vec<u8>,
+    byte: u8,
+    bits: u8,
 }
 
-fn pack_dsd_block(samples: &[f32]) -> Vec<u8> {
-    let mut error = [0.0f32; 5];
-    let mut bytes = Vec::with_capacity(samples.len() / 8);
-
-    for byte_samples in samples.chunks(8) {
-        let mut byte = 0u8;
-        for (bit_index, &sample) in byte_samples.iter().enumerate() {
-            let mut y = sample;
-            y += error[0] * 0.5
-                + error[1] * 0.25
-                + error[2] * 0.125
-                + error[3] * 0.0625
-                + error[4] * 0.03125;
-            let output = if y > 0.0 { 1.0 } else { -1.0 };
-            let new_error = y - output;
-
-            error[4] = error[3];
-            error[3] = error[2];
-            error[2] = error[1];
-            error[1] = error[0];
-            error[0] = new_error;
-
-            if output > 0.0 {
-                byte |= 1 << (7 - bit_index);
-            }
+impl DsdPacker {
+    fn with_capacity(bytes: usize) -> Self {
+        Self {
+            error: [0.0; 5],
+            bytes: Vec::with_capacity(bytes),
+            byte: 0,
+            bits: 0,
         }
-        bytes.push(byte);
     }
 
-    bytes
+    fn push(&mut self, sample: f32) {
+        let mut y = sample;
+        y += self.error[0] * 0.5
+            + self.error[1] * 0.25
+            + self.error[2] * 0.125
+            + self.error[3] * 0.0625
+            + self.error[4] * 0.03125;
+        let output = if y > 0.0 { 1.0 } else { -1.0 };
+        let new_error = y - output;
+
+        self.error[4] = self.error[3];
+        self.error[3] = self.error[2];
+        self.error[2] = self.error[1];
+        self.error[1] = self.error[0];
+        self.error[0] = new_error;
+
+        if output > 0.0 {
+            self.byte |= 1 << (7 - self.bits);
+        }
+        self.bits += 1;
+        if self.bits == 8 {
+            self.bytes.push(self.byte);
+            self.byte = 0;
+            self.bits = 0;
+        }
+    }
+
+    fn finish(self) -> Vec<u8> {
+        self.bytes
+    }
 }
 
 struct ButterLowpass {

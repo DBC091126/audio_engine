@@ -5,15 +5,27 @@ pub fn upsample_channel(input: &[f32], factor: usize, _sample_rate: u32) -> Vec<
         return input.to_vec();
     }
 
-    let mut zero_stuffed = Vec::with_capacity(input.len() * factor);
-    for &sample in input {
-        zero_stuffed.push(sample);
-        zero_stuffed.resize(zero_stuffed.len() + factor - 1, 0.0);
-    }
-
     let cutoff = 0.45 / factor as f32;
     let fir = make_lowpass_fir(65, cutoff, factor as f32);
-    fir_filter(&zero_stuffed, &fir)
+    let half = (fir.len() / 2) as isize;
+    let input_len = input.len() as isize;
+    (0..input.len() * factor)
+        .into_par_iter()
+        .map(|i| {
+            let i64 = i as isize;
+            let q_start = (i64 - half).div_euclid(factor as isize).max(0);
+            let q_end = ((i64 + half).div_euclid(factor as isize) + 1)
+                .min(input_len);
+            let mut sum = 0.0f32;
+            for q in q_start..q_end {
+                let j = (factor as isize * q - i64 + half) as usize;
+                if j < fir.len() {
+                    sum += fir[j] * input[q as usize];
+                }
+            }
+            sum
+        })
+        .collect()
 }
 
 pub fn downsample_channel(input: &[f32], factor: usize, _sample_rate: u32) -> Vec<f32> {
@@ -23,12 +35,28 @@ pub fn downsample_channel(input: &[f32], factor: usize, _sample_rate: u32) -> Ve
 
     let cutoff = 0.45 / factor as f32;
     let fir = make_lowpass_fir(65, cutoff, 1.0);
-    let filtered = fir_filter(input, &fir);
-    filtered
-        .iter()
-        .skip(factor / 2)
-        .step_by(factor)
-        .copied()
+    let half = (fir.len() / 2) as isize;
+    let output_len = if input.len() > factor / 2 {
+        (input.len() - factor / 2 + factor - 1) / factor
+    } else {
+        0
+    };
+    (0..output_len)
+        .into_par_iter()
+        .map(|m| {
+            let center = m * factor + factor / 2;
+            let mut sum = 0.0f32;
+            for (j, &coeff) in fir.iter().enumerate() {
+                let index = center as isize + j as isize - half;
+                let value = if index < 0 || index >= input.len() as isize {
+                    0.0
+                } else {
+                    input[index as usize]
+                };
+                sum += coeff * value;
+            }
+            sum
+        })
         .collect()
 }
 
@@ -60,52 +88,29 @@ pub fn make_lowpass_fir(taps: usize, cutoff: f32, gain: f32) -> Vec<f32> {
     coeffs
 }
 
-pub fn fir_filter(input: &[f32], coeffs: &[f32]) -> Vec<f32> {
-    let half = coeffs.len() as isize / 2;
-    input
-        .par_iter()
-        .enumerate()
-        .map(|(i, _)| {
-            let mut sum = 0.0f32;
-            for (j, &coeff) in coeffs.iter().enumerate() {
-                let index = i as isize + j as isize - half;
-                let value = if index < 0 || index >= input.len() as isize {
-                    0.0
-                } else {
-                    input[index as usize]
-                };
-                sum += coeff * value;
-            }
-            sum
-        })
-        .collect()
-}
-
-pub fn apply_dc_block(samples: &[f32], sample_rate: u32) -> Vec<f32> {
+pub fn apply_dc_block(samples: &mut [f32], sample_rate: u32) {
     let alpha = (2.0 * std::f32::consts::PI * 2.0 / sample_rate as f32).min(0.999);
     let feedback = 1.0 - alpha;
     let mut previous = samples.first().copied().unwrap_or(0.0);
     let mut y_previous = 0.0f32;
-    let mut out = Vec::with_capacity(samples.len());
 
-    for &x in samples {
-        let y = x - previous + feedback * y_previous;
-        previous = x;
+    for x in samples.iter_mut() {
+        let sample = *x;
+        let y = sample - previous + feedback * y_previous;
+        previous = sample;
         y_previous = y;
-        out.push(denormal_protect(y));
+        *x = denormal_protect(y);
     }
-    out
 }
 
-pub fn apply_lowpass(samples: &[f32], sample_rate: u32, cutoff_hz: f32) -> Vec<f32> {
+pub fn apply_lowpass(samples: &mut [f32], sample_rate: u32, cutoff_hz: f32) {
     let alpha = 1.0 - (-2.0 * std::f32::consts::PI * cutoff_hz / sample_rate as f32).exp();
     let mut y = samples.first().copied().unwrap_or(0.0);
-    let mut out = Vec::with_capacity(samples.len());
-    for &x in samples {
-        y += alpha * (x - y);
-        out.push(denormal_protect(y));
+    for x in samples.iter_mut() {
+        let sample = *x;
+        y += alpha * (sample - y);
+        *x = denormal_protect(y);
     }
-    out
 }
 
 pub fn denormal_protect(x: f32) -> f32 {

@@ -133,8 +133,8 @@ fn process_ate_channel(
     if factor > 1 {
         samples = oversampling::upsample_channel(&samples, factor, sample_rate);
     }
-    samples = oversampling::apply_dc_block(&samples, working_rate);
-    samples = apply_linear_stage(&samples, working_rate, preset);
+    oversampling::apply_dc_block(&mut samples, working_rate);
+    apply_linear_stage(&mut samples, working_rate, preset);
 
     let mut state = AteState::new();
     let mut out = Vec::with_capacity(samples.len());
@@ -194,7 +194,7 @@ pub fn calibrate_ate(
     config
 }
 
-fn apply_linear_stage(samples: &[f32], sample_rate: u32, preset: AtePreset) -> Vec<f32> {
+fn apply_linear_stage(samples: &mut [f32], sample_rate: u32, preset: AtePreset) {
     let cutoff = match preset {
         AtePreset::Tape | AtePreset::Hybrid => 38_000.0,
         AtePreset::Tube
@@ -205,9 +205,7 @@ fn apply_linear_stage(samples: &[f32], sample_rate: u32, preset: AtePreset) -> V
         _ => 55_000.0,
     };
     if sample_rate as f32 > cutoff * 2.0 {
-        oversampling::apply_lowpass(samples, sample_rate, cutoff)
-    } else {
-        samples.to_vec()
+        oversampling::apply_lowpass(samples, sample_rate, cutoff);
     }
 }
 
