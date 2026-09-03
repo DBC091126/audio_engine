@@ -151,11 +151,13 @@ jobs:
           CXX: g++
           AR: ar
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          LIBCLANG_PATH: /mingw64/bin
+          BINDGEN_EXTRA_CLANG_ARGS: "-I/mingw64/include"
         run: |
           export PATH="/c/Users/runneradmin/.cargo/bin:/mingw64/bin:/usr/bin:$PATH"
           export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig
           export FFMPEG_DIR=/mingw64
-          cargo build --release --no-default-features --target x86_64-pc-windows-gnu
+          cargo build --release --target x86_64-pc-windows-gnu
 
       - name: Build Java GUI distribution
         run: |
