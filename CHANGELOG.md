@@ -13,6 +13,8 @@
   from Symphonia and decoding the preview through Symphonia.
 - Surface native response-curve errors back to the GUI instead of returning a
   bare `code -1`.
+- Re-enabled the MSYS2 FFmpeg build for Windows and bundled its runtime DLLs,
+  so OGG/Opus and other FFmpeg-backed formats are recognized on Windows.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0
