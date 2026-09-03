@@ -50,6 +50,10 @@ jobs:
       - name: Build Rust engine for Windows
         shell: msys2 {0}
         env:
+          CC: gcc
+          CXX: g++
+          AR: ar
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
           LIBCLANG_PATH: /mingw64/bin
           BINDGEN_EXTRA_CLANG_ARGS: "-I/mingw64/include"
         run: |
