@@ -166,6 +166,14 @@ jobs:
             -Djavafx.version="$JAVAFX_VERSION" \
             -Daudio.engine.native.dir="$PWD/../target/x86_64-pc-windows-gnu/release"
 
+      - name: Bundle FFmpeg runtime DLLs
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          DIST="gui/target/audio-engine-gui-1.2.1-dist/native"
+          mkdir -p "$DIST"
+          cp -f /mingw64/bin/*.dll "$DIST/"
+
       - name: Build Windows installer
         run: |
           "$JAVA_HOME/bin/jpackage" \
