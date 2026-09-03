@@ -15,6 +15,29 @@ use crate::pipeline::{dsd_mode_from_u32, dsd_working_rate, resample_to_vec};
 
 const PROCESS_BLOCK_FRAMES: usize = 4096;
 
+#[derive(Debug, Clone, Copy)]
+struct AteControls {
+    noise_db: f32,
+    jitter_ps: f32,
+    phase_deg: f32,
+    crossover_depth: f32,
+    even_harmonics: f32,
+    odd_harmonics: f32,
+}
+
+impl Default for AteControls {
+    fn default() -> Self {
+        Self {
+            noise_db: 0.0,
+            jitter_ps: 0.0,
+            phase_deg: 0.0,
+            crossover_depth: 0.0,
+            even_harmonics: 1.0,
+            odd_harmonics: 1.0,
+        }
+    }
+}
+
 /// Unified entry point used by the Java/JNA GUI.
 ///
 /// Returns 0 on success and -1 on failure.
@@ -29,6 +52,73 @@ pub extern "C" fn process_file(
     ate_enable: u8,
     ate_style: u8,
     ate_intensity: f32,
+) -> i32 {
+    process_file_impl(
+        input_path,
+        output_path,
+        target_rate,
+        bit_depth,
+        output_format,
+        dsd_mode,
+        ate_enable,
+        ate_style,
+        ate_intensity,
+        AteControls::default(),
+    )
+}
+
+/// Entry point with tunable ATE controls for the advanced GUI lab.
+#[unsafe(no_mangle)]
+pub extern "C" fn process_file_custom(
+    input_path: *const c_char,
+    output_path: *const c_char,
+    target_rate: u32,
+    bit_depth: u16,
+    output_format: u8,
+    dsd_mode: u16,
+    ate_enable: u8,
+    ate_style: u8,
+    ate_intensity: f32,
+    noise_db: f32,
+    jitter_ps: f32,
+    phase_deg: f32,
+    crossover_depth: f32,
+    even_harmonics: f32,
+    odd_harmonics: f32,
+) -> i32 {
+    let controls = AteControls {
+        noise_db,
+        jitter_ps,
+        phase_deg,
+        crossover_depth,
+        even_harmonics,
+        odd_harmonics,
+    };
+    process_file_impl(
+        input_path,
+        output_path,
+        target_rate,
+        bit_depth,
+        output_format,
+        dsd_mode,
+        ate_enable,
+        ate_style,
+        ate_intensity,
+        controls,
+    )
+}
+
+fn process_file_impl(
+    input_path: *const c_char,
+    output_path: *const c_char,
+    target_rate: u32,
+    bit_depth: u16,
+    output_format: u8,
+    dsd_mode: u16,
+    ate_enable: u8,
+    ate_style: u8,
+    ate_intensity: f32,
+    controls: AteControls,
 ) -> i32 {
     let input = match cstr_to_string(input_path) {
         Ok(path) => path,
@@ -55,6 +145,7 @@ pub extern "C" fn process_file(
             ate_enable,
             ate_style,
             ate_intensity,
+            controls,
         ),
         2 | 3 => process_dsd_file(
             &input,
@@ -64,6 +155,7 @@ pub extern "C" fn process_file(
             ate_enable,
             ate_style,
             ate_intensity,
+            controls,
         ),
         format => Err(anyhow!("invalid output_format {format}")),
     };
@@ -217,7 +309,62 @@ pub extern "C" fn get_ate_response_curve(
         }
     };
 
-    let curve = match build_ate_response_curve(&input, ate_enable, ate_style, ate_intensity) {
+    let curve = match build_ate_response_curve(
+        &input,
+        ate_enable,
+        ate_style,
+        ate_intensity,
+        AteControls::default(),
+    ) {
+        Ok(curve) => curve,
+        Err(error) => {
+            eprintln!("[FFI ERROR] {error:#}");
+            return -1;
+        }
+    };
+    write_text(&curve, buffer, buffer_size);
+    0
+}
+
+/// Response curve with tunable ATE controls for the advanced GUI lab.
+#[unsafe(no_mangle)]
+pub extern "C" fn get_ate_response_curve_custom(
+    input_path: *const c_char,
+    ate_enable: u8,
+    ate_style: u8,
+    ate_intensity: f32,
+    noise_db: f32,
+    jitter_ps: f32,
+    phase_deg: f32,
+    crossover_depth: f32,
+    even_harmonics: f32,
+    odd_harmonics: f32,
+    buffer: *mut c_char,
+    buffer_size: usize,
+) -> i32 {
+    let input = match cstr_to_string(input_path) {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("[FFI ERROR] {message}");
+            return -1;
+        }
+    };
+
+    let controls = AteControls {
+        noise_db,
+        jitter_ps,
+        phase_deg,
+        crossover_depth,
+        even_harmonics,
+        odd_harmonics,
+    };
+    let curve = match build_ate_response_curve(
+        &input,
+        ate_enable,
+        ate_style,
+        ate_intensity,
+        controls,
+    ) {
         Ok(curve) => curve,
         Err(error) => {
             eprintln!("[FFI ERROR] {error:#}");
@@ -233,6 +380,7 @@ fn build_ate_response_curve(
     ate_enable: u8,
     ate_style: u8,
     ate_intensity: f32,
+    controls: AteControls,
 ) -> Result<String, Error> {
     let audio = decode_preview_seconds(input, 4.0)?;
     if !matches!(audio.channels, 1 | 2) {
@@ -265,7 +413,8 @@ fn build_ate_response_curve(
     let mut processed = vec![0.0f32; stereo.len()];
     if ate_enable != 0 {
         let base = family_base(audio.sample_rate)?;
-        let config = ate_config(ate_enable, ate_style, ate_intensity, audio.sample_rate);
+        let config =
+            ate_config(ate_enable, ate_style, ate_intensity, audio.sample_rate, controls);
         process_ate(&stereo, &mut processed, &config, audio.sample_rate, base, None);
     } else {
         processed.copy_from_slice(&stereo);
@@ -340,6 +489,7 @@ fn process_pcm_file(
     ate_enable: u8,
     ate_style: u8,
     ate_intensity: f32,
+    controls: AteControls,
 ) -> Result<(), Error> {
     if target_rate == 0 {
         return Err(anyhow!("PCM target_rate must be greater than zero"));
@@ -372,7 +522,7 @@ fn process_pcm_file(
             return Err(anyhow!("ATE currently requires stereo input"));
         }
         let base = family_base(target_rate)?;
-        let config = ate_config(ate_enable, ate_style, ate_intensity, target_rate);
+        let config = ate_config(ate_enable, ate_style, ate_intensity, target_rate, controls);
         let mut processed = vec![0.0f32; pcm.len()];
         process_ate(pcm, &mut processed, &config, target_rate, base, None);
         write_pcm_writer(output, target_rate, bit_depth, format, &audio.metadata, audio.channels, &processed)?;
@@ -421,6 +571,7 @@ fn process_dsd_file(
     ate_enable: u8,
     ate_style: u8,
     ate_intensity: f32,
+    controls: AteControls,
 ) -> Result<(), Error> {
     let audio = decode_file(input)?;
     let working_rate = dsd_working_rate(audio.sample_rate)?;
@@ -443,7 +594,7 @@ fn process_dsd_file(
             return Err(anyhow!("ATE currently requires stereo input"));
         }
         let base = family_base(working_rate)?;
-        let config = ate_config(ate_enable, ate_style, ate_intensity, working_rate);
+        let config = ate_config(ate_enable, ate_style, ate_intensity, working_rate, controls);
         let mut processed = vec![0.0f32; pcm.len()];
         process_ate(pcm, &mut processed, &config, working_rate, base, None);
         pcm_to_dsd(&processed, working_rate, audio.channels, mode).map_err(Error::msg)?
@@ -458,7 +609,13 @@ fn process_dsd_file(
     }
 }
 
-fn ate_config(enable: u8, style: u8, intensity: f32, sample_rate: u32) -> AteConfig {
+fn ate_config(
+    enable: u8,
+    style: u8,
+    intensity: f32,
+    sample_rate: u32,
+    controls: AteControls,
+) -> AteConfig {
     let preset = match style {
         0 => AtePreset::Tube,
         1 => AtePreset::Vinyl,
@@ -468,8 +625,14 @@ fn ate_config(enable: u8, style: u8, intensity: f32, sample_rate: u32) -> AteCon
         5 => AtePreset::SolidStateClassAb,
         6 => AtePreset::SolidStateClassD,
         7 => AtePreset::VintageSolidState,
+        8 => AtePreset::TubePushPull,
+        9 => AtePreset::FerriteTape,
+        10 => AtePreset::PhonoStage,
         _ => AtePreset::Hybrid,
     };
+    let preset_params = crate::ate::preset_params(preset);
+    let mut params = preset_params.clone();
+    apply_controls(&mut params, controls);
     AteConfig {
         enable: enable != 0,
         preset,
@@ -477,7 +640,38 @@ fn ate_config(enable: u8, style: u8, intensity: f32, sample_rate: u32) -> AteCon
         oversampling: oversampling_for_rate(sample_rate),
         stereo_variance_seed: 0x4154_455f_4656,
         enable_analyzer: false,
-        custom_params: None,
+        custom_params: Some(params),
+    }
+}
+
+fn apply_controls(params: &mut crate::ate::AteCustomParams, controls: AteControls) {
+    if controls.even_harmonics > 0.0 {
+        params.poly_a[2] *= controls.even_harmonics;
+        params.poly_a[4] *= controls.even_harmonics;
+    }
+    if controls.odd_harmonics > 0.0 {
+        params.poly_a[3] *= controls.odd_harmonics;
+        params.poly_a[5] *= controls.odd_harmonics;
+    }
+    if controls.noise_db > -140.0 {
+        params.noise_params.thermal_db = controls.noise_db;
+        params.noise_params.pink_db = (controls.noise_db + 4.0).max(-140.0);
+        params.noise_params.tape_db = (controls.noise_db + 12.0).max(-140.0);
+    }
+    if controls.jitter_ps > 0.0 {
+        params.jitter_params.enabled = true;
+        params.jitter_params.rms_ps = controls.jitter_ps;
+    }
+    if controls.phase_deg != 0.0 {
+        params.channel_mismatch.phase_deg = controls.phase_deg;
+    }
+    if controls.crossover_depth > 0.0 {
+        params.crossover.enabled = true;
+        let depth = controls.crossover_depth.clamp(0.0, 1.0);
+        params.crossover.inner_gain = 1.0 - 0.9 * depth;
+        params.crossover.negative_inner_gain = params.crossover.inner_gain;
+        params.crossover.theta = 0.004 + 0.02 * depth;
+        params.crossover.negative_theta = params.crossover.theta;
     }
 }
 

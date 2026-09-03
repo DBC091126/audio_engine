@@ -52,7 +52,10 @@ public final class ConversionSettings {
         A_CLASS_PP(4, "A类石机-推挽"),
         AB_CLASS(5, "AB类石机"),
         D_CLASS(6, "高端D类"),
-        VINTAGE_SOLID_STATE(7, "老式AB/B石机");
+        VINTAGE_SOLID_STATE(7, "老式AB/B石机"),
+        TUBE_PUSH_PULL(8, "胆机推挽"),
+        FERRITE_TAPE(9, "铁氧体磁带"),
+        PHONO_STAGE(10, "唱放");
         private final int code;
         private final String label;
 
@@ -84,6 +87,12 @@ public final class ConversionSettings {
     private boolean ateEnabled = false;
     private AteStyle ateStyle = AteStyle.TUBE;
     private double ateIntensity = 0.5;
+    private double ateNoiseDb = 0;
+    private double ateJitterPs = 0;
+    private double atePhaseDeg = 0;
+    private double ateCrossoverDepth = 0;
+    private double ateEvenHarmonics = 1.0;
+    private double ateOddHarmonics = 1.0;
 
     public OutputMode getMode() {
         return mode;
@@ -157,6 +166,54 @@ public final class ConversionSettings {
         this.ateIntensity = ateIntensity;
     }
 
+    public double getAteNoiseDb() {
+        return ateNoiseDb;
+    }
+
+    public void setAteNoiseDb(double ateNoiseDb) {
+        this.ateNoiseDb = ateNoiseDb;
+    }
+
+    public double getAteJitterPs() {
+        return ateJitterPs;
+    }
+
+    public void setAteJitterPs(double ateJitterPs) {
+        this.ateJitterPs = ateJitterPs;
+    }
+
+    public double getAtePhaseDeg() {
+        return atePhaseDeg;
+    }
+
+    public void setAtePhaseDeg(double atePhaseDeg) {
+        this.atePhaseDeg = atePhaseDeg;
+    }
+
+    public double getAteCrossoverDepth() {
+        return ateCrossoverDepth;
+    }
+
+    public void setAteCrossoverDepth(double ateCrossoverDepth) {
+        this.ateCrossoverDepth = ateCrossoverDepth;
+    }
+
+    public double getAteEvenHarmonics() {
+        return ateEvenHarmonics;
+    }
+
+    public void setAteEvenHarmonics(double ateEvenHarmonics) {
+        this.ateEvenHarmonics = ateEvenHarmonics;
+    }
+
+    public double getAteOddHarmonics() {
+        return ateOddHarmonics;
+    }
+
+    public void setAteOddHarmonics(double ateOddHarmonics) {
+        this.ateOddHarmonics = ateOddHarmonics;
+    }
+
     public int outputFormatCode() {
         return mode == OutputMode.PCM ? pcmFormat.getCode() : dsdFormat.getCode();
     }
@@ -176,6 +233,12 @@ public final class ConversionSettings {
         copy.ateEnabled = ateEnabled;
         copy.ateStyle = ateStyle;
         copy.ateIntensity = ateIntensity;
+        copy.ateNoiseDb = ateNoiseDb;
+        copy.ateJitterPs = ateJitterPs;
+        copy.atePhaseDeg = atePhaseDeg;
+        copy.ateCrossoverDepth = ateCrossoverDepth;
+        copy.ateEvenHarmonics = ateEvenHarmonics;
+        copy.ateOddHarmonics = ateOddHarmonics;
         return copy;
     }
 }

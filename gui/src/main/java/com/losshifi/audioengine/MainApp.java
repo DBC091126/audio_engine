@@ -87,6 +87,19 @@ public final class MainApp extends Application {
     private final ComboBox<ConversionSettings.AteStyle> ateStyleBox = new ComboBox<>();
     private final Slider ateIntensitySlider = new Slider(0, 1, 0.5);
     private final Label ateIntensityLabel = new Label("0.50");
+    private final Slider ateNoiseSlider = new Slider(-140, 0, 0);
+    private final Label ateNoiseLabel = new Label("AUTO");
+    private final Slider ateJitterSlider = new Slider(0, 100, 0);
+    private final Label ateJitterLabel = new Label("0 ps");
+    private final Slider atePhaseSlider = new Slider(0, 2, 0);
+    private final Label atePhaseLabel = new Label("0.00°");
+    private final Slider ateCrossoverSlider = new Slider(0, 1, 0);
+    private final Label ateCrossoverLabel = new Label("0.00");
+    private final Slider ateEvenHarmonicSlider = new Slider(0.2, 2, 1);
+    private final Label ateEvenHarmonicLabel = new Label("1.00x");
+    private final Slider ateOddHarmonicSlider = new Slider(0.2, 2, 1);
+    private final Label ateOddHarmonicLabel = new Label("1.00x");
+    private final Button resetAteCustomButton = new Button("重置自定义");
 
     private final Label sampleRateLabel = new Label("-");
     private final Label bitDepthLabel = new Label("-");
@@ -621,7 +634,13 @@ public final class MainApp extends Application {
                 + "|" + settings.getDsdFormat()
                 + "|" + settings.isAteEnabled()
                 + "|" + settings.getAteStyle()
-                + "|" + String.format(Locale.ROOT, "%.6f", settings.getAteIntensity());
+                + "|" + String.format(Locale.ROOT, "%.6f", settings.getAteIntensity())
+                + "|" + String.format(Locale.ROOT, "%.4f", settings.getAteNoiseDb())
+                + "|" + String.format(Locale.ROOT, "%.4f", settings.getAteJitterPs())
+                + "|" + String.format(Locale.ROOT, "%.4f", settings.getAtePhaseDeg())
+                + "|" + String.format(Locale.ROOT, "%.4f", settings.getAteCrossoverDepth())
+                + "|" + String.format(Locale.ROOT, "%.4f", settings.getAteEvenHarmonics())
+                + "|" + String.format(Locale.ROOT, "%.4f", settings.getAteOddHarmonics());
     }
 
     private Node buildTopBar() {
@@ -797,6 +816,28 @@ public final class MainApp extends Application {
         ateIntensitySlider.valueProperty().addListener((obs, old, value) ->
                 ateIntensityLabel.setText(String.format("%.2f", value.doubleValue())));
         ateIntensityLabel.setText("0.50");
+        ateNoiseSlider.valueProperty().addListener((obs, old, value) -> {
+            double noise = value.doubleValue();
+            ateNoiseLabel.setText(noise >= -0.01 ? "AUTO" : String.format("%.0f dB", noise));
+        });
+        ateJitterSlider.valueProperty().addListener((obs, old, value) ->
+                ateJitterLabel.setText(String.format("%.0f ps", value.doubleValue())));
+        atePhaseSlider.valueProperty().addListener((obs, old, value) ->
+                atePhaseLabel.setText(String.format("%.2f°", value.doubleValue())));
+        ateCrossoverSlider.valueProperty().addListener((obs, old, value) ->
+                ateCrossoverLabel.setText(String.format("%.2f", value.doubleValue())));
+        ateEvenHarmonicSlider.valueProperty().addListener((obs, old, value) ->
+                ateEvenHarmonicLabel.setText(String.format("%.2fx", value.doubleValue())));
+        ateOddHarmonicSlider.valueProperty().addListener((obs, old, value) ->
+                ateOddHarmonicLabel.setText(String.format("%.2fx", value.doubleValue())));
+        resetAteCustomButton.setOnAction(event -> {
+            ateNoiseSlider.setValue(0);
+            ateJitterSlider.setValue(0);
+            atePhaseSlider.setValue(0);
+            ateCrossoverSlider.setValue(0);
+            ateEvenHarmonicSlider.setValue(1.0);
+            ateOddHarmonicSlider.setValue(1.0);
+        });
         ateCurrentFileLabel.getStyleClass().add("muted-label");
         ateCurrentFileLabel.setWrapText(true);
         ateSelectButton.setMaxWidth(Double.MAX_VALUE);
@@ -813,6 +854,14 @@ public final class MainApp extends Application {
                 ateCheck,
                 new Label("风格"), ateStyleBox,
                 new Label("强度"), ateIntensitySlider, ateIntensityLabel,
+                sectionTitle("自定义 Lab"),
+                new Label("底噪"), ateNoiseSlider, ateNoiseLabel,
+                new Label("抖动"), ateJitterSlider, ateJitterLabel,
+                new Label("声道相位"), atePhaseSlider, atePhaseLabel,
+                new Label("交越深度"), ateCrossoverSlider, ateCrossoverLabel,
+                new Label("偶次谐波"), ateEvenHarmonicSlider, ateEvenHarmonicLabel,
+                new Label("奇次谐波"), ateOddHarmonicSlider, ateOddHarmonicLabel,
+                resetAteCustomButton,
                 responseCompareButton);
         panel.setPadding(new Insets(12));
         return panel;
@@ -1068,6 +1117,12 @@ public final class MainApp extends Application {
                 ? ConversionSettings.AteStyle.TUBE
                 : ateStyleBox.getValue());
         settings.setAteIntensity(ateIntensitySlider.getValue());
+        settings.setAteNoiseDb(ateNoiseSlider.getValue());
+        settings.setAteJitterPs(ateJitterSlider.getValue());
+        settings.setAtePhaseDeg(atePhaseSlider.getValue());
+        settings.setAteCrossoverDepth(ateCrossoverSlider.getValue());
+        settings.setAteEvenHarmonics(ateEvenHarmonicSlider.getValue());
+        settings.setAteOddHarmonics(ateOddHarmonicSlider.getValue());
         return settings;
     }
 
@@ -1097,6 +1152,12 @@ public final class MainApp extends Application {
         }
         ateCheck.setSelected(config.getBoolean("ate_enabled", false));
         ateIntensitySlider.setValue(config.getDouble("ate_intensity", 0.5));
+        ateNoiseSlider.setValue(config.getDouble("ate_noise_db", 0));
+        ateJitterSlider.setValue(config.getDouble("ate_jitter_ps", 0));
+        atePhaseSlider.setValue(config.getDouble("ate_phase_deg", 0));
+        ateCrossoverSlider.setValue(config.getDouble("ate_crossover_depth", 0));
+        ateEvenHarmonicSlider.setValue(config.getDouble("ate_even_harmonics", 1.0));
+        ateOddHarmonicSlider.setValue(config.getDouble("ate_odd_harmonics", 1.0));
         try {
             ateStyleBox.setValue(ConversionSettings.AteStyle.valueOf(
                     config.get("ate_style", "TUBE")));
@@ -1116,6 +1177,12 @@ public final class MainApp extends Application {
         config.set("ate_enabled", String.valueOf(settings.isAteEnabled()));
         config.set("ate_style", settings.getAteStyle().name());
         config.set("ate_intensity", String.valueOf(settings.getAteIntensity()));
+        config.set("ate_noise_db", String.valueOf(settings.getAteNoiseDb()));
+        config.set("ate_jitter_ps", String.valueOf(settings.getAteJitterPs()));
+        config.set("ate_phase_deg", String.valueOf(settings.getAtePhaseDeg()));
+        config.set("ate_crossover_depth", String.valueOf(settings.getAteCrossoverDepth()));
+        config.set("ate_even_harmonics", String.valueOf(settings.getAteEvenHarmonics()));
+        config.set("ate_odd_harmonics", String.valueOf(settings.getAteOddHarmonics()));
         saveConfig();
     }
 
@@ -1247,6 +1314,13 @@ public final class MainApp extends Application {
         ateCheck.setDisable(!enabled);
         ateStyleBox.setDisable(!enabled);
         ateIntensitySlider.setDisable(!enabled);
+        ateNoiseSlider.setDisable(!enabled);
+        ateJitterSlider.setDisable(!enabled);
+        atePhaseSlider.setDisable(!enabled);
+        ateCrossoverSlider.setDisable(!enabled);
+        ateEvenHarmonicSlider.setDisable(!enabled);
+        ateOddHarmonicSlider.setDisable(!enabled);
+        resetAteCustomButton.setDisable(!enabled);
     }
 
     private void applyBlackTheme() {

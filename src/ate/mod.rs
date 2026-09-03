@@ -199,9 +199,12 @@ fn apply_linear_stage(samples: &mut [f32], sample_rate: u32, preset: AtePreset) 
         AtePreset::Tape | AtePreset::Hybrid => 38_000.0,
         AtePreset::Tube
         | AtePreset::VintageSolidState
+        | AtePreset::TubePushPull
         | AtePreset::SolidStateClassASingleEnded
         | AtePreset::SolidStateClassAPushPull
         | AtePreset::SolidStateClassAb => 45_000.0,
+        AtePreset::FerriteTape => 36_000.0,
+        AtePreset::PhonoStage => 30_000.0,
         _ => 55_000.0,
     };
     if sample_rate as f32 > cutoff * 2.0 {

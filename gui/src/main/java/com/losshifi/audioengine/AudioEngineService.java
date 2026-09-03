@@ -46,7 +46,7 @@ public final class AudioEngineService {
     }
 
     public int convert(String input, String output, ConversionSettings settings) throws IOException {
-        int rc = library.process_file(
+        int rc = library.process_file_custom(
                 input,
                 output,
                 settings.getPcmRate(),
@@ -55,7 +55,13 @@ public final class AudioEngineService {
                 settings.dsdModeCode(),
                 (byte) (settings.isAteEnabled() ? 1 : 0),
                 (byte) settings.getAteStyle().getCode(),
-                (float) settings.getAteIntensity());
+                (float) settings.getAteIntensity(),
+                (float) settings.getAteNoiseDb(),
+                (float) settings.getAteJitterPs(),
+                (float) settings.getAtePhaseDeg(),
+                (float) settings.getAteCrossoverDepth(),
+                (float) settings.getAteEvenHarmonics(),
+                (float) settings.getAteOddHarmonics());
         if (rc != 0) {
             throw new IOException("process_file failed with code " + rc);
         }
@@ -65,11 +71,17 @@ public final class AudioEngineService {
     public ResponseCurve readAteResponseCurve(String input, ConversionSettings settings)
             throws IOException {
         Memory buffer = new Memory(1 << 20);
-        int rc = library.get_ate_response_curve(
+        int rc = library.get_ate_response_curve_custom(
                 input,
                 (byte) (settings.isAteEnabled() ? 1 : 0),
                 (byte) settings.getAteStyle().getCode(),
                 (float) settings.getAteIntensity(),
+                (float) settings.getAteNoiseDb(),
+                (float) settings.getAteJitterPs(),
+                (float) settings.getAtePhaseDeg(),
+                (float) settings.getAteCrossoverDepth(),
+                (float) settings.getAteEvenHarmonics(),
+                (float) settings.getAteOddHarmonics(),
                 buffer,
                 buffer.size());
         if (rc != 0) {

@@ -208,6 +208,9 @@ fn run_ate_test() -> anyhow::Result<()> {
         AtePreset::SolidStateClassAb,
         AtePreset::SolidStateClassD,
         AtePreset::VintageSolidState,
+        AtePreset::TubePushPull,
+        AtePreset::FerriteTape,
+        AtePreset::PhonoStage,
     ];
     for preset in solid_state_presets {
         let mut preset_output = vec![0.0f32; input.len()];

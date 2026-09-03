@@ -255,6 +255,90 @@ pub fn preset_params(preset: AtePreset) -> AteCustomParams {
             },
             ..AteCustomParams::default()
         },
+        AtePreset::TubePushPull => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-72.0),
+                db_to_amp(-25.0),
+                db_to_amp(-86.0),
+                db_to_amp(-46.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                crossover: CrossoverParams {
+                    enabled: true,
+                    inner_gain: 0.06,
+                    theta: 0.01,
+                    negative_inner_gain: 0.06,
+                    negative_theta: 0.012,
+                },
+                state_params: StateParams {
+                    flux_alpha: 0.008,
+                    flux_beta: 0.0022,
+                    bias_alpha: 0.0004,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -122.0,
+                    pink_db: -112.0,
+                    ..NoiseParams::default()
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::FerriteTape => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-36.0),
+                db_to_amp(-46.0),
+                db_to_amp(-68.0),
+                db_to_amp(-78.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    flux_alpha: 0.026,
+                    flux_beta: 0.005,
+                    recovery_alpha: 0.003,
+                    recovery_decay: 0.997,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -125.0,
+                    pink_db: -98.0,
+                    tape_db: -82.0,
+                    ..NoiseParams::default()
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::PhonoStage => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-48.0),
+                db_to_amp(-60.0),
+                db_to_amp(-80.0),
+                db_to_amp(-85.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    flux_alpha: 0.004,
+                    bias_alpha: 0.0002,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -128.0,
+                    pink_db: -105.0,
+                    ..NoiseParams::default()
+                },
+                channel_mismatch: ChannelMismatch {
+                    gain_db_l: 0.004,
+                    gain_db_r: -0.004,
+                    phase_deg: 0.08,
+                    thd_variance: 0.003,
+                    crosstalk_db: -104.0,
+                },
+                ..AteCustomParams::default()
+            }
+        }
         AtePreset::Hybrid => {
             let tube = preset_params(AtePreset::Tube);
             let tape = preset_params(AtePreset::Tape);

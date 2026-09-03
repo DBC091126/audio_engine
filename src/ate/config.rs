@@ -13,6 +13,9 @@ pub enum AtePreset {
     SolidStateClassAPushPull,
     SolidStateClassAb,
     SolidStateClassD,
+    TubePushPull,
+    FerriteTape,
+    PhonoStage,
     Custom,
 }
 

@@ -24,6 +24,23 @@ public interface AudioEngineLibrary extends Library {
             byte ateStyle,
             float ateIntensity);
 
+    int process_file_custom(
+            String inputPath,
+            String outputPath,
+            int targetRate,
+            short bitDepth,
+            byte outputFormat,
+            short dsdMode,
+            byte ateEnable,
+            byte ateStyle,
+            float ateIntensity,
+            float noiseDb,
+            float jitterPs,
+            float phaseDeg,
+            float crossoverDepth,
+            float evenHarmonics,
+            float oddHarmonics);
+
     int get_file_info(
             String path,
             IntByReference sampleRate,
@@ -47,6 +64,20 @@ public interface AudioEngineLibrary extends Library {
             byte ateEnable,
             byte ateStyle,
             float ateIntensity,
+            Pointer buffer,
+            long bufferSize);
+
+    int get_ate_response_curve_custom(
+            String inputPath,
+            byte ateEnable,
+            byte ateStyle,
+            float ateIntensity,
+            float noiseDb,
+            float jitterPs,
+            float phaseDeg,
+            float crossoverDepth,
+            float evenHarmonics,
+            float oddHarmonics,
             Pointer buffer,
             long bufferSize);
 
@@ -107,7 +138,7 @@ public interface AudioEngineLibrary extends Library {
                 "target/release",
                 "../target/release",
                 "audio_engine/target/release",
-                "audio_engine/gui/target/audio-engine-gui-0.1.0-dist/native",
+                "audio_engine/gui/target/audio-engine-gui-1.1.0-dist/native",
         };
         for (String candidate : candidates) {
             File dir = new File(userDir, candidate);
