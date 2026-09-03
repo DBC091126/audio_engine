@@ -23,6 +23,8 @@
 - Added tube push-pull, ferrite tape, and phono-stage presets.
 - Exposed advanced ATE noise, jitter, phase, crossover, and harmonic controls
   through the GUI and new `process_file_custom` FFI entry point.
+- Localized the advanced ATE lab controls into English, Simplified Chinese,
+  and Traditional Chinese.
 
 ### Correctness
 
