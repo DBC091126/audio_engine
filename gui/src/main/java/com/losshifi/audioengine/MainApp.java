@@ -210,7 +210,15 @@ public final class MainApp extends Application {
             Map.entry("二次元", "Anime"),
             Map.entry("黑色", "Black"),
             Map.entry("DSD 模式", "DSD Mode"),
-            Map.entry("打开输出目录失败: ", "Failed to open output dir: ")
+            Map.entry("打开输出目录失败: ", "Failed to open output dir: "),
+            Map.entry("自定义 Lab", "Custom Lab"),
+            Map.entry("底噪", "Noise Floor"),
+            Map.entry("抖动", "Jitter"),
+            Map.entry("声道相位", "Phase"),
+            Map.entry("交越深度", "Crossover"),
+            Map.entry("偶次谐波", "Even Harmonics"),
+            Map.entry("奇次谐波", "Odd Harmonics"),
+            Map.entry("重置自定义", "Reset Custom")
     );
     private static final Map<String, String> HANT_TEXT = Map.ofEntries(
             Map.entry("主题", "主題"),
@@ -262,7 +270,15 @@ public final class MainApp extends Application {
             Map.entry("0 个文件", "0 個檔案"),
             Map.entry("个文件", " 個檔案"),
             Map.entry("DSD 模式", "DSD 模式"),
-            Map.entry("打开输出目录失败: ", "開啟輸出目錄失敗: ")
+            Map.entry("打开输出目录失败: ", "開啟輸出目錄失敗: "),
+            Map.entry("自定义 Lab", "自訂 Lab"),
+            Map.entry("底噪", "底噪"),
+            Map.entry("抖动", "抖動"),
+            Map.entry("声道相位", "聲道相位"),
+            Map.entry("交越深度", "交越深度"),
+            Map.entry("偶次谐波", "偶次諧波"),
+            Map.entry("奇次谐波", "奇次諧波"),
+            Map.entry("重置自定义", "重設自訂")
     );
     private static final Map<String, String> HANT_EN_TEXT = Map.ofEntries(
             Map.entry("AUDIO ENGINE", "音訊引擎"),
