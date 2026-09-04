@@ -13,6 +13,8 @@ public final class BatchItem {
     private final DoubleProperty progress = new SimpleDoubleProperty(0);
     private final StringProperty log = new SimpleStringProperty("");
     private AudioInfo info;
+    private ConversionSettings ateOverride;
+    private boolean skipped;
 
     public BatchItem(Path input) {
         this.input = input;
@@ -64,6 +66,25 @@ public final class BatchItem {
 
     public void setInfo(AudioInfo info) {
         this.info = info;
+    }
+
+    public ConversionSettings getAteOverride() {
+        return ateOverride;
+    }
+
+    public void setAteOverride(ConversionSettings ateOverride) {
+        this.ateOverride = ateOverride;
+    }
+
+    public boolean isSkipped() {
+        return skipped;
+    }
+
+    public void setSkipped(boolean skipped) {
+        this.skipped = skipped;
+        if (skipped) {
+            setStatus("已跳过");
+        }
     }
 
     public String getFileName() {

@@ -40,6 +40,12 @@ public final class BatchConversionTask extends Task<Void> {
                 updateMessage("任务已取消");
                 throw new InterruptedException("cancelled");
             }
+            if (item.isSkipped()) {
+                Platform.runLater(() -> item.setStatus("已跳过"));
+                done++;
+                updateProgress((double) done / total, 1.0);
+                continue;
+            }
 
             Platform.runLater(() -> item.setStatus("处理中"));
             updateProgress(Math.max(0.01, (double) done / total), 1.0);
@@ -53,11 +59,14 @@ public final class BatchConversionTask extends Task<Void> {
                         : service.readInfo(input.toString());
                 item.setInfo(info);
 
-                ConversionSettings effectiveSettings = settings;
-                if (settings.getMode() == ConversionSettings.OutputMode.PCM) {
-                    int resolvedRate = compatiblePcmRate(info, settings);
-                    if (resolvedRate != settings.getPcmRate()) {
-                        effectiveSettings = settings.copyWithPcmRate(resolvedRate);
+                ConversionSettings requested = item.getAteOverride() != null
+                        ? item.getAteOverride()
+                        : settings;
+                ConversionSettings effectiveSettings = requested;
+                if (requested.getMode() == ConversionSettings.OutputMode.PCM) {
+                    int resolvedRate = compatiblePcmRate(info, requested);
+                    if (resolvedRate != requested.getPcmRate()) {
+                        effectiveSettings = requested.copyWithPcmRate(resolvedRate);
                         logSink.accept("目标采样率调整为 " + resolvedRate
                                 + " Hz（" + familyLabel(info) + "）");
                     }
@@ -157,7 +166,13 @@ public final class BatchConversionTask extends Task<Void> {
         } else {
             ext = settings.getDsdFormat() == ConversionSettings.DsdFormat.DSF ? "dsf" : "dff";
         }
-        return outputDir.resolve(base + "." + ext).toString();
+        String candidate = outputDir.resolve(base + "." + ext).toString();
+        int counter = 1;
+        while (Files.exists(Path.of(candidate))) {
+            candidate = outputDir.resolve(base + " (" + counter + ")." + ext).toString();
+            counter++;
+        }
+        return candidate;
     }
 
     private static long estimateBytes(AudioInfo info, ConversionSettings settings) {

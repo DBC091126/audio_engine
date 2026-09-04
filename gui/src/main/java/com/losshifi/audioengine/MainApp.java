@@ -38,6 +38,7 @@ import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.Dragboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
@@ -113,6 +114,8 @@ public final class MainApp extends Application {
     private final Button outputButton = new Button("输出目录");
     private final Button clearButton = new Button("清空队列");
     private final Button removeButton = new Button("移除选中");
+    private final Button skipSelectedButton = new Button("跳过选中");
+    private final Button applyToSelectedButton = new Button("应用到选中");
     private final Button responseCompareButton = new Button("响应对比");
     private final Button matchReferenceButton = new Button("音色匹配");
     private final Button ateSelectButton = new Button("选择音频");
@@ -148,6 +151,7 @@ public final class MainApp extends Application {
     private boolean applyingLanguageProgrammatically;
     private AudioInfo currentInfo;
     private BatchConversionTask batchTask;
+    private BatchItem draggedItem;
     private final Set<Integer> recommendedRates = new HashSet<>();
     private final Map<String, AudioInfo> infoCache = new ConcurrentHashMap<>();
     private final Map<String, ResponseCurve> responseCache = new LinkedHashMap<>(64, 0.75f, true) {
@@ -208,6 +212,10 @@ public final class MainApp extends Application {
             Map.entry("完成", "Done"),
             Map.entry("失败", "Failed"),
             Map.entry("已取消", "Cancelled"),
+            Map.entry("跳过选中", "Skip Selected"),
+            Map.entry("应用到选中", "Apply to Selected"),
+            Map.entry("已应用设置", "Applied"),
+            Map.entry("已跳过", "Skipped"),
             Map.entry("0 个文件", "0 files"),
             Map.entry("个文件", " files"),
             Map.entry("二次元", "Anime"),
@@ -273,6 +281,10 @@ public final class MainApp extends Application {
             Map.entry("完成", "完成"),
             Map.entry("失败", "失敗"),
             Map.entry("已取消", "已取消"),
+            Map.entry("跳过选中", "跳過選取"),
+            Map.entry("应用到选中", "套用到選取"),
+            Map.entry("已应用设置", "已套用設定"),
+            Map.entry("已跳过", "已跳過"),
             Map.entry("0 个文件", "0 個檔案"),
             Map.entry("个文件", " 個檔案"),
             Map.entry("DSD 模式", "DSD 模式"),
@@ -392,6 +404,40 @@ public final class MainApp extends Application {
 
         fileList.setCellFactory(list -> new BatchCell());
         fileList.setItems(items);
+        fileList.setOnDragDetected(event -> {
+            draggedItem = fileList.getSelectionModel().getSelectedItem();
+            if (draggedItem == null) {
+                return;
+            }
+            ClipboardContent content = new ClipboardContent();
+            content.putString("audio-engine-batch-item");
+            Dragboard board = fileList.startDragAndDrop(TransferMode.MOVE);
+            board.setDragView(fileList.snapshot(null, null));
+            board.setContent(content);
+            event.consume();
+        });
+        fileList.setOnDragOver(event -> {
+            if (draggedItem != null) {
+                event.acceptTransferModes(TransferMode.MOVE);
+            }
+            event.consume();
+        });
+        fileList.setOnDragDropped(event -> {
+            if (draggedItem != null) {
+                int from = items.indexOf(draggedItem);
+                BatchItem target = fileList.getSelectionModel().getSelectedItem();
+                int to = target == null ? items.size() - 1 : items.indexOf(target);
+                if (from >= 0) {
+                    items.remove(from);
+                    to = Math.max(0, Math.min(to, items.size()));
+                    items.add(to, draggedItem);
+                    fileList.getSelectionModel().select(draggedItem);
+                }
+                draggedItem = null;
+                event.setDropCompleted(true);
+            }
+            event.consume();
+        });
         fileList.getSelectionModel().selectedItemProperty().addListener((obs, old, item) -> {
             if (item == null) {
                 clearInfo();
@@ -767,13 +813,27 @@ public final class MainApp extends Application {
         HBox queueHeader = new HBox(10, queueTitle, queueHeaderSpacer, queueStatsLabel);
 
         removeButton.setOnAction(event -> removeSelected());
+        skipSelectedButton.setOnAction(event -> {
+            BatchItem selected = fileList.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                selected.setSkipped(true);
+            }
+        });
+        applyToSelectedButton.setOnAction(event -> {
+            BatchItem selected = fileList.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                selected.setAteOverride(collectSettings());
+                selected.setStatus("已应用设置");
+            }
+        });
         outputDirLabel.getStyleClass().add("muted-label");
         outputDirLabel.setMaxWidth(220);
         outputDirLabel.setPrefWidth(220);
         outputDirLabel.setTextOverrun(javafx.scene.control.OverrunStyle.LEADING_ELLIPSIS);
         Region queueActionSpacer = new Region();
         HBox.setHgrow(queueActionSpacer, Priority.ALWAYS);
-        HBox queueActions = new HBox(8, removeButton, queueActionSpacer, outputDirLabel);
+        HBox queueActions = new HBox(8, removeButton, skipSelectedButton,
+                applyToSelectedButton, queueActionSpacer, outputDirLabel);
 
         VBox left = new VBox(10,
                 queueHeader,
@@ -1387,6 +1447,8 @@ public final class MainApp extends Application {
         cancelButton.setDisable(!batchRunning);
         clearButton.setDisable(!hasItems || batchRunning);
         removeButton.setDisable(!hasSelection || batchRunning);
+        skipSelectedButton.setDisable(!hasSelection || batchRunning);
+        applyToSelectedButton.setDisable(!hasSelection || batchRunning);
         responseCompareButton.setDisable(!hasSelection || batchRunning);
     }
 
