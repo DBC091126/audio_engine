@@ -6,6 +6,8 @@ import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -26,12 +28,17 @@ import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.SourceDataLine;
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -51,6 +58,10 @@ public final class MusicPlayerView extends BorderPane {
     private final Button previousButton = new Button("\u23EE");
     private final Button playPauseButton = new Button("\u25B6");
     private final Button nextButton = new Button("\u23ED");
+    private final Button shuffleButton = new Button("\uD83D\uDD00");
+    private final Button repeatButton = new Button("\uD83D\uDD01");
+    private final Button favoriteButton = new Button("☆");
+    private final Button infoButton = new Button("Info");
     private final Slider progressSlider = new Slider(0, 1, 0);
     private final Slider volumeSlider = new Slider(0, 1, 0.8);
     private final Label nowTitle = new Label("Nothing playing");
@@ -61,6 +72,11 @@ public final class MusicPlayerView extends BorderPane {
     private MediaPlayer mediaPlayer;
     private SourceDataLine liveLine;
     private Thread liveThread;
+    private final Set<String> favorites = new HashSet<>();
+    private final Random random = new Random();
+    private boolean shuffle;
+    private boolean repeat;
+    private volatile boolean userStopped;
     private Path currentPath;
     private long mediaDurationMs;
     private boolean wasPlaying;
@@ -93,6 +109,7 @@ public final class MusicPlayerView extends BorderPane {
             }
         });
         searchField.textProperty().addListener((obs, old, text) -> applyFilter());
+        loadFavorites();
     }
 
     private HBox buildToolbar() {
@@ -115,7 +132,18 @@ public final class MusicPlayerView extends BorderPane {
         previousButton.setOnAction(event -> previous());
         playPauseButton.setOnAction(event -> togglePlay());
         nextButton.setOnAction(event -> next());
-        HBox controls = new HBox(14, previousButton, playPauseButton, nextButton);
+        shuffleButton.setOnAction(event -> {
+            shuffle = !shuffle;
+            shuffleButton.setStyle(shuffle ? "-fx-text-fill: #4dc1ff;" : "");
+        });
+        repeatButton.setOnAction(event -> {
+            repeat = !repeat;
+            repeatButton.setStyle(repeat ? "-fx-text-fill: #4dc1ff;" : "");
+        });
+        favoriteButton.setOnAction(event -> toggleFavorite());
+        infoButton.setOnAction(event -> showInfo());
+        HBox controls = new HBox(14, previousButton, playPauseButton, nextButton,
+                shuffleButton, repeatButton, favoriteButton, infoButton);
         controls.setAlignment(Pos.CENTER);
         HBox timing = new HBox(8, positionLabel, progressSlider);
         timing.setAlignment(Pos.CENTER_LEFT);
@@ -174,6 +202,7 @@ public final class MusicPlayerView extends BorderPane {
     private void playFile(Path path) {
         currentPath = path;
         nowTitle.setText(path.getFileName().toString());
+        favoriteButton.setText(favorites.contains(path.toString()) ? "★" : "☆");
         ConversionSettings settings = settingsSupplier.get();
         new Thread(() -> {
             try {
@@ -195,6 +224,7 @@ public final class MusicPlayerView extends BorderPane {
 
     private void startLiveDsp(Path wav, ConversionSettings settings) {
         stopLive();
+        userStopped = false;
         try {
             AudioInputStream stream = AudioSystem.getAudioInputStream(wav.toFile());
             AudioFormat format = stream.getFormat();
@@ -243,6 +273,9 @@ public final class MusicPlayerView extends BorderPane {
                         liveLine = null;
                         playPauseButton.setText("\u25B6");
                     });
+                    if (!userStopped) {
+                        Platform.runLater(this::handleEndOfMedia);
+                    }
                 }
             }, "live-player");
             liveThread.setDaemon(true);
@@ -254,6 +287,7 @@ public final class MusicPlayerView extends BorderPane {
     }
 
     private void stopLive() {
+        userStopped = true;
         if (liveThread != null) {
             liveThread.interrupt();
             liveThread = null;
@@ -318,7 +352,7 @@ public final class MusicPlayerView extends BorderPane {
             mediaPlayer.play();
             playPauseButton.setText("\u23F8");
         });
-        mediaPlayer.setOnEndOfMedia(() -> next());
+        mediaPlayer.setOnEndOfMedia(() -> handleEndOfMedia());
         mediaPlayer.currentTimeProperty().addListener((obs, old, current) -> {
             if (mediaDurationMs > 0) {
                 double seconds = current.toMillis() / 1000.0;
@@ -356,9 +390,92 @@ public final class MusicPlayerView extends BorderPane {
     }
 
     private void next() {
+        if (shuffle && visibleFiles.size() > 1) {
+            int current = fileList.getSelectionModel().getSelectedIndex();
+            int nextIndex = current;
+            while (nextIndex == current) {
+                nextIndex = random.nextInt(visibleFiles.size());
+            }
+            fileList.getSelectionModel().select(nextIndex);
+            return;
+        }
         int index = fileList.getSelectionModel().getSelectedIndex();
         if (index >= 0 && index < visibleFiles.size() - 1) {
             fileList.getSelectionModel().select(index + 1);
+        }
+    }
+
+    private void handleEndOfMedia() {
+        if (repeat) {
+            playFile(currentPath);
+        } else {
+            next();
+        }
+    }
+
+    private void toggleFavorite() {
+        if (currentPath == null) {
+            return;
+        }
+        String key = currentPath.toString();
+        if (favorites.contains(key)) {
+            favorites.remove(key);
+            favoriteButton.setText("☆");
+        } else {
+            favorites.add(key);
+            favoriteButton.setText("★");
+        }
+        saveFavorites();
+    }
+
+    private void showInfo() {
+        if (currentPath == null) {
+            return;
+        }
+        new Thread(() -> {
+            try {
+                AudioInfo info = service.readInfo(currentPath.toString());
+                String text = currentPath.getFileName()
+                        + "\nSample rate: " + info.getSampleRate() + " Hz"
+                        + "\nChannels: " + info.getChannels()
+                        + "\nDuration: " + String.format("%.3f s", info.getDuration())
+                        + "\nBits: " + info.getBits()
+                        + "\n\nMetadata:\n" + info.getMetadata();
+                Platform.runLater(() -> new Alert(
+                        Alert.AlertType.INFORMATION, text, ButtonType.OK).showAndWait());
+            } catch (Exception ex) {
+                Platform.runLater(() -> nowInfo.setText("Failed: " + ex.getMessage()));
+            }
+        }, "file-info").start();
+    }
+
+    private Path favoriteFile() {
+        return Path.of(System.getProperty("user.home"), ".audio_engine", "favorites.txt");
+    }
+
+    private void loadFavorites() {
+        try {
+            Path file = favoriteFile();
+            if (Files.isRegularFile(file)) {
+                favorites.clear();
+                for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                    if (!line.isBlank()) {
+                        favorites.add(line);
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // First launch or unreadable favorites file.
+        }
+    }
+
+    private void saveFavorites() {
+        try {
+            Path file = favoriteFile();
+            Files.createDirectories(file.getParent());
+            Files.write(file, favorites, StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
+            // Best effort persistence.
         }
     }
 
