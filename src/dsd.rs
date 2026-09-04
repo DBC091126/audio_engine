@@ -4,6 +4,8 @@ use std::io::{BufWriter, Write};
 
 use anyhow::{anyhow, Context};
 
+use crate::decoder::AudioData;
+
 const DSF_BLOCK_SIZE: usize = 4096;
 const DSF_FMT_CHUNK_SIZE: u64 = 52;
 const DSF_DATA_HEADER_SIZE: u64 = 12;
@@ -88,6 +90,142 @@ pub fn encode_dsf(
     writer.write_all(&id3)?;
     writer.flush()?;
     Ok(())
+}
+
+/// Read a DSF container and reconstruct the packed MSB-first interleaved DSD bytes.
+pub fn decode_dsf(path: &str) -> Result<DsdStream, anyhow::Error> {
+    let bytes = std::fs::read(path).with_context(|| format!("failed to read DSF {path}"))?;
+    if bytes.len() < 92 || &bytes[0..4] != b"DSD " {
+        return Err(anyhow!("invalid DSF header: {path}"));
+    }
+
+    let sample_rate = read_le_u32(&bytes, 56)?;
+    let channels = read_le_u32(&bytes, 52)?;
+    if sample_rate == 0 || channels == 0 {
+        return Err(anyhow!("DSF stream parameters are invalid in {path}"));
+    }
+    if bytes.len() < 92 || &bytes[80..84] != b"data" {
+        return Err(anyhow!("missing DSF data chunk in {path}"));
+    }
+    let data_start = 92;
+    let raw = &bytes[data_start..];
+    let channels_usize = channels as usize;
+    let bytes_per_channel = raw.len() / channels_usize;
+    let block_size = 4096usize;
+    let blocks = bytes_per_channel.div_ceil(block_size);
+    let mut dsd_data = Vec::with_capacity(raw.len());
+    for block in 0..blocks {
+        let start = block * block_size;
+        let end = (start + block_size).min(bytes_per_channel);
+        let len = end - start;
+        for channel in 0..channels_usize {
+            let offset = channel * bytes_per_channel + start;
+            dsd_data.extend(
+                raw[offset..offset + len]
+                    .iter()
+                    .map(|byte| byte.reverse_bits()),
+            );
+        }
+    }
+    Ok(DsdStream {
+        data: dsd_data,
+        sample_rate,
+        channels: channels as u16,
+    })
+}
+
+/// Read a DSDIFF/DFF container and reconstruct packed MSB-first interleaved DSD bytes.
+pub fn decode_dff(path: &str) -> Result<DsdStream, anyhow::Error> {
+    let bytes = std::fs::read(path).with_context(|| format!("failed to read DFF {path}"))?;
+    if bytes.len() < 16 || &bytes[0..4] != b"FRM8" || &bytes[12..16] != b"DSD " {
+        return Err(anyhow!("invalid DFF header: {path}"));
+    }
+    let root_start = 12;
+    let root_end = bytes.len();
+    let mut pos = root_start + 4;
+
+    let mut sample_rate = 0u32;
+    let mut channels = 0u16;
+    let mut data: Option<Vec<u8>> = None;
+
+    while pos + 12 <= root_end {
+        let id = &bytes[pos..pos + 4];
+        let size = read_be_u64(&bytes, pos + 4)? as usize;
+        let data_start = pos + 12;
+        let data_end = data_start.saturating_add(size).min(root_end);
+        if id == b"PROP" {
+            let mut sub = data_start + 4;
+            while sub + 12 <= data_end {
+                let sub_id = &bytes[sub..sub + 4];
+                let sub_size = read_be_u64(&bytes, sub + 4)? as usize;
+                let sub_data = sub + 12;
+                if sub_id == b"FS  " && sample_rate == 0 && sub_data + 4 <= data_end {
+                    sample_rate = read_be_u32(&bytes, sub_data)?;
+                }
+                if sub_id == b"CHNL" && channels == 0 && sub_data + 2 <= data_end {
+                    channels = read_be_u16(&bytes, sub_data)?;
+                }
+                sub += 12 + sub_size + (sub_size % 2);
+            }
+        } else if id == b"DSD " && data.is_none() {
+            data = Some(bytes[data_start..data_end].to_vec());
+        }
+        pos += 12 + size + (size % 2);
+    }
+
+    if sample_rate == 0 || channels == 0 {
+        return Err(anyhow!("DFF could not determine sample rate or channels in {path}"));
+    }
+    let data = data.ok_or_else(|| anyhow!("missing DFF DSD data chunk in {path}"))?;
+    Ok(DsdStream {
+        data,
+        sample_rate,
+        channels,
+    })
+}
+
+/// Convert packed 1-bit DSD into interleaved Float32 PCM using 64x boxcar decimation.
+pub fn dsd_to_pcm(stream: &DsdStream, output_rate: u32) -> Result<AudioData, anyhow::Error> {
+    if stream.sample_rate == 0 || output_rate == 0 {
+        return Err(anyhow!("DSD and PCM sample rates must be greater than zero"));
+    }
+    let ratio = (stream.sample_rate / output_rate) as usize;
+    if ratio == 0 || ratio > 256 {
+        return Err(anyhow!(
+            "unsupported DSD-to-PCM ratio {} for {} Hz output",
+            ratio,
+            output_rate
+        ));
+    }
+
+    let channels = usize::from(stream.channels);
+    let bytes_per_channel = stream.data.len() / channels;
+    let bits_per_channel = bytes_per_channel * 8;
+    let frames = bits_per_channel / ratio;
+    let mut samples = Vec::with_capacity(frames * channels);
+
+    for frame in 0..frames {
+        let start = frame * ratio;
+        for channel in 0..channels {
+            let mut sum = 0.0f32;
+            for offset in 0..ratio {
+                let bit_index = start + offset;
+                let byte = stream.data[(bit_index / 8) * channels + channel];
+                let mask = 1u8 << (7 - (bit_index % 8));
+                sum += if byte & mask != 0 { 1.0 } else { -1.0 };
+            }
+            samples.push(sum / ratio as f32);
+        }
+    }
+
+    Ok(AudioData {
+        samples,
+        sample_rate: output_rate,
+        channels: stream.channels,
+        bits_per_sample: 1,
+        total_frames: frames as u64,
+        metadata: HashMap::new(),
+    })
 }
 
 /// Write a DSDIFF/DFF container around a packed DSD stream.
@@ -360,4 +498,32 @@ fn synchsafe_u32(value: u32) -> Result<[u8; 4], anyhow::Error> {
         remaining >>= 7;
     }
     Ok(out)
+}
+
+fn read_le_u32(bytes: &[u8], offset: usize) -> Result<u32, anyhow::Error> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| anyhow!("truncated little-endian u32"))?;
+    Ok(u32::from_le_bytes(slice.try_into().unwrap()))
+}
+
+fn read_be_u32(bytes: &[u8], offset: usize) -> Result<u32, anyhow::Error> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| anyhow!("truncated big-endian u32"))?;
+    Ok(u32::from_be_bytes(slice.try_into().unwrap()))
+}
+
+fn read_be_u16(bytes: &[u8], offset: usize) -> Result<u16, anyhow::Error> {
+    let slice = bytes
+        .get(offset..offset + 2)
+        .ok_or_else(|| anyhow!("truncated big-endian u16"))?;
+    Ok(u16::from_be_bytes(slice.try_into().unwrap()))
+}
+
+fn read_be_u64(bytes: &[u8], offset: usize) -> Result<u64, anyhow::Error> {
+    let slice = bytes
+        .get(offset..offset + 8)
+        .ok_or_else(|| anyhow!("truncated big-endian u64"))?;
+    Ok(u64::from_be_bytes(slice.try_into().unwrap()))
 }

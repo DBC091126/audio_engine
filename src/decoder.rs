@@ -1,10 +1,12 @@
 use std::path::Path;
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Context};
 
 #[cfg(feature = "ffmpeg")]
 use crate::ffmpeg_decoder;
 use crate::symphonia_decoder;
+use crate::dsd::{decode_dff, decode_dsf, dsd_to_pcm};
 
 /// Fully decoded, interleaved audio in the Float32 domain.
 #[derive(Debug, Clone, Default)]
@@ -27,6 +29,16 @@ pub struct AudioData {
 /// `symphonia-bundle-opus` is not published on crates.io.
 pub fn decode_file(path: &str) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
+
+    if ext == "dsf" || ext == "dff" {
+        let stream = if ext == "dsf" {
+            decode_dsf(path)?
+        } else {
+            decode_dff(path)?
+        };
+        let output_rate = stream.sample_rate / 64;
+        return dsd_to_pcm(&stream, output_rate);
+    }
 
     if matches!(ext.as_str(), "m4a" | "aac" | "mp4") {
         match symphonia_decoder::decode(path) {
@@ -74,6 +86,22 @@ pub(crate) fn decode_preview_seconds(
     seconds: f64,
 ) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
+    if ext == "dsf" || ext == "dff" {
+        let stream = if ext == "dsf" {
+            decode_dsf(path)?
+        } else {
+            decode_dff(path)?
+        };
+        let output_rate = stream.sample_rate / 64;
+        let mut pcm = dsd_to_pcm(&stream, output_rate)?;
+        let channels = usize::from(pcm.channels);
+        let max_frames = ((f64::from(output_rate)) * seconds).max(1.0) as usize;
+        let frames = pcm.samples.len() / channels;
+        let take = max_frames.min(frames);
+        pcm.samples.truncate(take * channels);
+        pcm.total_frames = take as u64;
+        return Ok(pcm);
+    }
     let ffmpeg_first = matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus");
     let symphonia_first = matches!(ext.as_str(), "m4a" | "aac" | "mp4")
         && symphonia_decoder::probe_sample_rate_only(path).is_ok();
@@ -148,6 +176,26 @@ pub(crate) fn decode_preview_seconds(
 /// reliable header duration still fall back to the full decoder.
 pub(crate) fn probe_file(path: &str) -> Result<AudioData, anyhow::Error> {
     let ext = extension(path).ok_or_else(|| anyhow!("cannot determine file extension: {path}"))?;
+
+    if ext == "dsf" || ext == "dff" {
+        let stream = if ext == "dsf" {
+            decode_dsf(path)?
+        } else {
+            decode_dff(path)?
+        };
+        let channels = usize::from(stream.channels);
+        let bytes_per_channel = stream.data.len() / channels;
+        let output_rate = stream.sample_rate / 64;
+        let total_frames = (bytes_per_channel * 8 / 64) as u64;
+        return Ok(AudioData {
+            samples: Vec::new(),
+            sample_rate: output_rate,
+            channels: stream.channels,
+            bits_per_sample: 1,
+            total_frames,
+            metadata: HashMap::new(),
+        });
+    }
 
     if matches!(ext.as_str(), "m4a" | "aac" | "mp4" | "opus") {
         if matches!(ext.as_str(), "m4a" | "aac" | "mp4") {

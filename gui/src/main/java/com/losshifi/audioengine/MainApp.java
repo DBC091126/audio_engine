@@ -1014,7 +1014,8 @@ public final class MainApp extends Application {
         chooser.setTitle("选择音频文件");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
                 "支持的音频",
-                "*.wav", "*.flac", "*.mp3", "*.ogg", "*.opus", "*.m4a", "*.aac", "*.mp4"));
+                "*.wav", "*.flac", "*.mp3", "*.ogg", "*.opus", "*.m4a", "*.aac", "*.mp4",
+                "*.aiff", "*.aif", "*.dsf", "*.dff"));
         List<File> files = chooser.showOpenMultipleDialog(stage);
         if (files != null) {
             addFiles(files);
