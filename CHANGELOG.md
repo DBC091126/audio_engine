@@ -15,6 +15,16 @@
   bare `code -1`.
 - Re-enabled the MSYS2 FFmpeg build for Windows and bundled its runtime DLLs,
   so OGG/Opus and other FFmpeg-backed formats are recognized on Windows.
+- Added DSF/DFF DSD input decoding to PCM, including GUI file selection and
+  response-curve preview support.
+- Added reference-tone matching that analyzes even/odd harmonics and applies
+  them through the advanced ATE controls.
+- Upgraded batch conversion with per-file ATE overrides, skip selection, queue
+  reorder, configurable parallelism, and conflict-free output naming.
+- Added engine-backed playback preview using a temporary WAV.
+- Added five more ATE device presets: power transformer, cathode follower,
+  opamp preamp, phono cartridge resonance, and DAC filter rolloff.
+- Added a one-click update check button in the toolbar.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0

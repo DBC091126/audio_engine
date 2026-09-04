@@ -14,9 +14,15 @@ the ATE analog texture engine. It ships as a Rust core with a JavaFX GUI.
 - Resample only inside the 44.1 kHz or 48 kHz family, with 1/8x to 8x ratios.
 - Encode PCM WAV/FLAC at 16-bit or 24-bit with TPDF dither and metadata.
 - Encode packed DSF and DFF containers for DSD64, DSD128, and DSD256.
+- Read DSF/DFF DSD input and convert it to PCM for ATE or further processing.
 - ATE analog presets: tube, vinyl, tape, hybrid, and solid-state A/AB/D.
 - Before/after frequency-response comparison for the ATE pipeline.
+- Reference-tone matching that derives even/odd harmonic settings from a track.
 - JavaFX dashboard with batch conversion, drag/drop, and cached analysis.
+- Batch per-file ATE overrides, skip selection, queue reorder, parallel conversion,
+  and automatic conflict renaming.
+- Playback preview that turns FLAC/OGG/DSD etc. into a temporary WAV.
+- One-click update check that opens the GitHub release page.
 - Multi-threaded decode, ATE filtering, DSD modulation, and CLI batch decode.
 - Streaming DSF/DFF writers and a streaming DSD packer to reduce memory.
 - SHA-256 checksums published with every GitHub release installer.
@@ -169,6 +175,11 @@ noise, jitter, and oversampling. Available presets include:
 - Tube push-pull
 - Ferrite tape
 - Phono stage
+- Power transformer saturation
+- Cathode follower
+- Opamp preamp
+- Phono cartridge resonance
+- DAC filter rolloff
 
 The audio-synthesis path is deliberately deterministic with a fixed random
 seed so the same file and preset produce the same result.
