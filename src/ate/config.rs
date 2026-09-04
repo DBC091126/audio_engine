@@ -16,6 +16,11 @@ pub enum AtePreset {
     TubePushPull,
     FerriteTape,
     PhonoStage,
+    PowerTransformerSaturation,
+    CathodeFollower,
+    OpampPreamp,
+    PhonoCartridgeResonance,
+    DacFilterRolloff,
     Custom,
 }
 

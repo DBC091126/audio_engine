@@ -211,6 +211,11 @@ fn run_ate_test() -> anyhow::Result<()> {
         AtePreset::TubePushPull,
         AtePreset::FerriteTape,
         AtePreset::PhonoStage,
+        AtePreset::PowerTransformerSaturation,
+        AtePreset::CathodeFollower,
+        AtePreset::OpampPreamp,
+        AtePreset::PhonoCartridgeResonance,
+        AtePreset::DacFilterRolloff,
     ];
     for preset in solid_state_presets {
         let mut preset_output = vec![0.0f32; input.len()];

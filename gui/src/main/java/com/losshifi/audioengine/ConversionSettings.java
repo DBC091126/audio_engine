@@ -55,7 +55,12 @@ public final class ConversionSettings {
         VINTAGE_SOLID_STATE(7, "老式AB/B石机"),
         TUBE_PUSH_PULL(8, "胆机推挽"),
         FERRITE_TAPE(9, "铁氧体磁带"),
-        PHONO_STAGE(10, "唱放");
+        PHONO_STAGE(10, "唱放"),
+        POWER_TRANSFORMER_SATURATION(11, "电源牛磁饱和"),
+        CATHODE_FOLLOWER(12, "阴随"),
+        OPAMP_PREAMP(13, "运放前级"),
+        PHONO_CARTRIDGE_RESONANCE(14, "唱头共振"),
+        DAC_FILTER_ROLLOFF(15, "DAC滤波滚降");
         private final int code;
         private final String label;
 
@@ -91,6 +96,11 @@ public final class ConversionSettings {
                     case TUBE_PUSH_PULL -> "Tube Push-Pull";
                     case FERRITE_TAPE -> "Ferrite Tape";
                     case PHONO_STAGE -> "Phono Stage";
+                    case POWER_TRANSFORMER_SATURATION -> "Power Transformer";
+                    case CATHODE_FOLLOWER -> "Cathode Follower";
+                    case OPAMP_PREAMP -> "Opamp Preamp";
+                    case PHONO_CARTRIDGE_RESONANCE -> "Phono Cartridge";
+                    case DAC_FILTER_ROLLOFF -> "DAC Filter Rolloff";
                 };
             }
             if ("繁體中文".equals(language)) {
@@ -106,6 +116,11 @@ public final class ConversionSettings {
                     case TUBE_PUSH_PULL -> "膽機推挽";
                     case FERRITE_TAPE -> "鐵氧體磁帶";
                     case PHONO_STAGE -> "唱放";
+                    case POWER_TRANSFORMER_SATURATION -> "電源牛磁飽和";
+                    case CATHODE_FOLLOWER -> "陰極隨耦";
+                    case OPAMP_PREAMP -> "運放前級";
+                    case PHONO_CARTRIDGE_RESONANCE -> "唱頭共振";
+                    case DAC_FILTER_ROLLOFF -> "DAC濾波滾降";
                 };
             }
             return label;

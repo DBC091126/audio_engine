@@ -339,6 +339,146 @@ pub fn preset_params(preset: AtePreset) -> AteCustomParams {
                 ..AteCustomParams::default()
             }
         }
+        AtePreset::PowerTransformerSaturation => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-32.0),
+                db_to_amp(-55.0),
+                db_to_amp(-70.0),
+                db_to_amp(-80.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    flux_alpha: 0.03,
+                    flux_beta: 0.006,
+                    bias_alpha: 0.0006,
+                    thermal_alpha: 0.0003,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -119.0,
+                    pink_db: -96.0,
+                    hum_db: -78.0,
+                    hum_hz: 50.0,
+                    tape_db: -122.0,
+                    ..NoiseParams::default()
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::CathodeFollower => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-34.0),
+                db_to_amp(-62.0),
+                db_to_amp(-82.0),
+                db_to_amp(-90.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    env_alpha: 0.0004,
+                    bias_alpha: 0.0002,
+                    flux_alpha: 0.004,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -124.0,
+                    pink_db: -114.0,
+                    ..NoiseParams::default()
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::OpampPreamp => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-72.0),
+                db_to_amp(-48.0),
+                db_to_amp(-90.0),
+                db_to_amp(-74.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    bias_alpha: 0.0001,
+                    thermal_alpha: 0.0005,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -132.0,
+                    pink_db: -128.0,
+                    ..NoiseParams::default()
+                },
+                channel_mismatch: ChannelMismatch {
+                    gain_db_l: 0.002,
+                    gain_db_r: -0.002,
+                    phase_deg: 0.03,
+                    thd_variance: 0.002,
+                    crosstalk_db: -108.0,
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::PhonoCartridgeResonance => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-45.0),
+                db_to_amp(-58.0),
+                db_to_amp(-76.0),
+                db_to_amp(-88.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    flux_alpha: 0.008,
+                    flux_beta: 0.002,
+                    recovery_alpha: 0.001,
+                    recovery_decay: 0.9995,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -126.0,
+                    pink_db: -100.0,
+                    vinyl_db: -88.0,
+                    crackle_db: -66.0,
+                    ..NoiseParams::default()
+                },
+                channel_mismatch: ChannelMismatch {
+                    gain_db_l: 0.006,
+                    gain_db_r: -0.006,
+                    phase_deg: 0.18,
+                    thd_variance: 0.008,
+                    crosstalk_db: -92.0,
+                },
+                ..AteCustomParams::default()
+            }
+        }
+        AtePreset::DacFilterRolloff => {
+            let poly = harmonics_to_poly(
+                db_to_amp(-66.0),
+                db_to_amp(-54.0),
+                db_to_amp(-88.0),
+                db_to_amp(-78.0),
+            );
+            AteCustomParams {
+                poly_a: poly,
+                state_params: StateParams {
+                    thermal_alpha: 0.0003,
+                    ..StateParams::default()
+                },
+                noise_params: NoiseParams {
+                    thermal_db: -136.0,
+                    pink_db: -132.0,
+                    ..NoiseParams::default()
+                },
+                channel_mismatch: ChannelMismatch {
+                    gain_db_l: 0.003,
+                    gain_db_r: -0.003,
+                    phase_deg: 0.04,
+                    thd_variance: 0.002,
+                    crosstalk_db: -106.0,
+                },
+                ..AteCustomParams::default()
+            }
+        }
         AtePreset::Hybrid => {
             let tube = preset_params(AtePreset::Tube);
             let tape = preset_params(AtePreset::Tape);

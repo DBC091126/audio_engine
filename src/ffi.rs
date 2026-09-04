@@ -630,6 +630,11 @@ fn ate_config(
         8 => AtePreset::TubePushPull,
         9 => AtePreset::FerriteTape,
         10 => AtePreset::PhonoStage,
+        11 => AtePreset::PowerTransformerSaturation,
+        12 => AtePreset::CathodeFollower,
+        13 => AtePreset::OpampPreamp,
+        14 => AtePreset::PhonoCartridgeResonance,
+        15 => AtePreset::DacFilterRolloff,
         _ => AtePreset::Hybrid,
     };
     let preset_params = crate::ate::preset_params(preset);
