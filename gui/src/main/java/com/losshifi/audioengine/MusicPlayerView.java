@@ -1,21 +1,25 @@
 package com.losshifi.audioengine;
 
-import javafx.application.Platform;
 import javafx.animation.AnimationTimer;
+import javafx.application.Platform;
+import javafx.beans.property.ReadOnlyObjectWrapper;
+import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.control.Button;
-import javafx.scene.control.Alert;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
-import javafx.scene.control.Slider;
-import javafx.scene.control.TextField;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Label;
+import javafx.scene.control.Slider;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TextField;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
@@ -46,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -59,9 +64,15 @@ public final class MusicPlayerView extends BorderPane {
     private final Supplier<ConversionSettings> settingsSupplier;
     private final ObservableList<Path> allFiles = FXCollections.observableArrayList();
     private final ObservableList<Path> visibleFiles = FXCollections.observableArrayList();
-    private final ListView<Path> fileList = new ListView<>(visibleFiles);
-    private final Button addFolderButton = new Button("Add Folder");
+    private final Map<Path, AudioInfo> infoMap = new ConcurrentHashMap<>();
+    private final Map<Path, Path> wavCache = new HashMap<>();
+    private final Set<String> favorites = new HashSet<>();
+
+    private final TableView<Path> table = new TableView<>(visibleFiles);
     private final TextField searchField = new TextField();
+    private final Button addFolderButton = new Button("Add Folder");
+    private final Button savePlaylistButton = new Button("Save Playlist");
+    private final Button loadPlaylistButton = new Button("Load Playlist");
     private final Button previousButton = new Button("\u23EE");
     private final Button playPauseButton = new Button("\u25B6");
     private final Button nextButton = new Button("\u23ED");
@@ -69,29 +80,27 @@ public final class MusicPlayerView extends BorderPane {
     private final Button repeatButton = new Button("\uD83D\uDD01");
     private final Button favoriteButton = new Button("☆");
     private final Button infoButton = new Button("Info");
-    private final Button savePlaylistButton = new Button("Save Playlist");
-    private final Button loadPlaylistButton = new Button("Load Playlist");
     private final Slider progressSlider = new Slider(0, 1, 0);
     private final Slider volumeSlider = new Slider(0, 1, 0.8);
     private final Label nowTitle = new Label("Nothing playing");
     private final Label nowInfo = new Label("-");
     private final Label positionLabel = new Label("0:00 / 0:00");
-    private final Canvas spectrumCanvas = new Canvas(640, 90);
+    private final Label statusBarLabel = new Label("Ready");
+    private final Canvas spectrumCanvas = new Canvas(640, 80);
     private final double[] levelBars = new double[64];
     private final ImageView coverImage = new ImageView();
+    private final ToggleButton allToggle = new ToggleButton("All");
+    private final ToggleButton favoritesToggle = new ToggleButton("Favorites");
 
-    private final Map<Path, Path> wavCache = new HashMap<>();
     private MediaPlayer mediaPlayer;
     private SourceDataLine liveLine;
     private Thread liveThread;
-    private final Set<String> favorites = new HashSet<>();
-    private final Random random = new Random();
+    private Path currentPath;
+    private long mediaDurationMs;
     private boolean shuffle;
     private boolean repeat;
     private volatile boolean userStopped;
-    private Path currentPath;
-    private long mediaDurationMs;
-    private boolean wasPlaying;
+    private final Random random = new Random();
 
     public MusicPlayerView(
             AudioEngineService service,
@@ -101,14 +110,11 @@ public final class MusicPlayerView extends BorderPane {
         this.stage = stage;
         this.settingsSupplier = settingsSupplier;
         setTop(buildToolbar());
-        setCenter(fileList);
+        setCenter(buildCenter());
         setBottom(buildNowPlaying());
-        fileList.setCellFactory(list -> new FileCell());
-        fileList.getSelectionModel().selectedItemProperty().addListener((obs, old, selected) -> {
-            if (selected != null) {
-                playFile(selected);
-            }
-        });
+        configureTable();
+        configureSearch();
+        configureToggles();
         volumeSlider.valueProperty().addListener((obs, old, value) -> {
             if (mediaPlayer != null) {
                 mediaPlayer.setVolume(value.doubleValue());
@@ -120,15 +126,13 @@ public final class MusicPlayerView extends BorderPane {
                 mediaPlayer.seek(javafx.util.Duration.millis(value.doubleValue() * 1000.0));
             }
         });
-        searchField.textProperty().addListener((obs, old, text) -> applyFilter());
         loadFavorites();
-        AnimationTimer timer = new AnimationTimer() {
+        new AnimationTimer() {
             @Override
             public void handle(long now) {
                 drawVisualizer();
             }
-        };
-        timer.start();
+        }.start();
     }
 
     private HBox buildToolbar() {
@@ -145,6 +149,18 @@ public final class MusicPlayerView extends BorderPane {
         bar.setPadding(new Insets(12));
         bar.getStyleClass().add("panel");
         return bar;
+    }
+
+    private VBox buildCenter() {
+        ToggleGroup group = new ToggleGroup();
+        allToggle.setToggleGroup(group);
+        favoritesToggle.setToggleGroup(group);
+        allToggle.setSelected(true);
+        HBox switcher = new HBox(8, allToggle, favoritesToggle);
+        switcher.setPadding(new Insets(10, 12, 0, 12));
+        VBox box = new VBox(8, switcher, table);
+        VBox.setVgrow(table, Priority.ALWAYS);
+        return box;
     }
 
     private VBox buildNowPlaying() {
@@ -176,10 +192,54 @@ public final class MusicPlayerView extends BorderPane {
         coverImage.setPreserveRatio(true);
         HBox artwork = new HBox(12, coverImage, left);
         artwork.setAlignment(Pos.CENTER_LEFT);
-        VBox box = new VBox(10, spectrumCanvas, artwork, timing, controls, volumeSlider);
+        HBox status = new HBox(8, statusBarLabel);
+        status.setAlignment(Pos.CENTER_LEFT);
+        VBox box = new VBox(10, spectrumCanvas, artwork, timing, controls, volumeSlider, status);
         box.setPadding(new Insets(14));
         box.getStyleClass().add("panel");
         return box;
+    }
+
+    private void configureTable() {
+        TableColumn<Path, Integer> indexColumn = new TableColumn<>("#");
+        indexColumn.setCellValueFactory(cell ->
+                new ReadOnlyObjectWrapper<>(visibleFiles.indexOf(cell.getValue()) + 1));
+        indexColumn.setPrefWidth(36);
+        TableColumn<Path, String> titleColumn = new TableColumn<>("Title");
+        titleColumn.setCellValueFactory(cell ->
+                new ReadOnlyStringWrapper(titleFor(cell.getValue())));
+        titleColumn.setPrefWidth(260);
+        TableColumn<Path, String> artistColumn = new TableColumn<>("Artist");
+        artistColumn.setCellValueFactory(cell ->
+                new ReadOnlyStringWrapper(metadataFor(cell.getValue(), "artist")));
+        artistColumn.setPrefWidth(180);
+        TableColumn<Path, String> albumColumn = new TableColumn<>("Album");
+        albumColumn.setCellValueFactory(cell ->
+                new ReadOnlyStringWrapper(metadataFor(cell.getValue(), "album")));
+        albumColumn.setPrefWidth(180);
+        TableColumn<Path, String> durationColumn = new TableColumn<>("Duration");
+        durationColumn.setCellValueFactory(cell ->
+                new ReadOnlyStringWrapper(durationFor(cell.getValue())));
+        durationColumn.setPrefWidth(80);
+        table.getColumns().addAll(indexColumn, titleColumn, artistColumn, albumColumn, durationColumn);
+        table.setRowFactory(view -> {
+            javafx.scene.control.TableRow<Path> row = new javafx.scene.control.TableRow<>();
+            row.setOnMouseClicked(event -> {
+                if (!row.isEmpty() && event.getClickCount() >= 1) {
+                    playFile(row.getItem());
+                }
+            });
+            return row;
+        });
+    }
+
+    private void configureSearch() {
+        searchField.textProperty().addListener((obs, old, text) -> applyFilter());
+    }
+
+    private void configureToggles() {
+        allToggle.setOnAction(event -> applyFilter());
+        favoritesToggle.setOnAction(event -> applyFilter());
     }
 
     private void chooseFolder() {
@@ -192,6 +252,7 @@ public final class MusicPlayerView extends BorderPane {
                 Platform.runLater(() -> {
                     allFiles.setAll(found);
                     applyFilter();
+                    loadMetadata();
                 });
             }, "library-scanner").start();
         }
@@ -217,8 +278,12 @@ public final class MusicPlayerView extends BorderPane {
 
     private void applyFilter() {
         String query = searchField.getText() == null ? "" : searchField.getText().toLowerCase();
+        boolean favoritesOnly = favoritesToggle.isSelected();
         List<Path> filtered = new ArrayList<>();
         for (Path path : allFiles) {
+            if (favoritesOnly && !favorites.contains(path.toString())) {
+                continue;
+            }
             if (query.isEmpty() || path.getFileName().toString().toLowerCase().contains(query)) {
                 filtered.add(path);
             }
@@ -226,14 +291,66 @@ public final class MusicPlayerView extends BorderPane {
         visibleFiles.setAll(filtered);
     }
 
+    private void loadMetadata() {
+        new Thread(() -> {
+            for (Path path : allFiles) {
+                if (!infoMap.containsKey(path)) {
+                    try {
+                        infoMap.put(path, service.readInfo(path.toString()));
+                        Platform.runLater(table::refresh);
+                    } catch (Exception ignored) {
+                        // Keep the filename-only fallback.
+                    }
+                }
+            }
+        }, "metadata-loader").start();
+    }
+
+    private String titleFor(Path path) {
+        AudioInfo info = infoMap.get(path);
+        if (info != null) {
+            String title = info.getMetadata().get("title");
+            if (title != null && !title.isBlank()) {
+                return title;
+            }
+        }
+        return path.getFileName().toString();
+    }
+
+    private String metadataFor(Path path, String key) {
+        AudioInfo info = infoMap.get(path);
+        if (info != null) {
+            String value = info.getMetadata().get(key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "-";
+    }
+
+    private String durationFor(Path path) {
+        AudioInfo info = infoMap.get(path);
+        return info == null ? "-" : format((long) (info.getDuration() * 1000.0));
+    }
+
     private void playFile(Path path) {
         currentPath = path;
-        nowTitle.setText(path.getFileName().toString());
+        nowTitle.setText(titleFor(path));
         favoriteButton.setText(favorites.contains(path.toString()) ? "★" : "☆");
         loadCover(path);
         ConversionSettings settings = settingsSupplier.get();
         new Thread(() -> {
             try {
+                AudioInfo info = infoMap.get(path);
+                if (info == null) {
+                    info = service.readInfo(path.toString());
+                    infoMap.put(path, info);
+                    Platform.runLater(table::refresh);
+                }
+                AudioInfo finalInfo = info;
+                Platform.runLater(() -> statusBarLabel.setText(
+                        finalInfo.getSampleRate() + " Hz / " + finalInfo.getChannels()
+                                + " ch / " + finalInfo.getBits() + " bit"));
                 Path wav = preparePlayable(path);
                 Platform.runLater(() -> startPlayback(wav, settings));
             } catch (Exception ex) {
@@ -248,113 +365,6 @@ public final class MusicPlayerView extends BorderPane {
         } else {
             startMedia(wav);
         }
-    }
-
-    private void startLiveDsp(Path wav, ConversionSettings settings) {
-        stopLive();
-        userStopped = false;
-        try {
-            AudioInputStream stream = AudioSystem.getAudioInputStream(wav.toFile());
-            AudioFormat format = stream.getFormat();
-            SourceDataLine line = AudioSystem.getSourceDataLine(format);
-            line.open(format, 8192);
-            line.start();
-            liveLine = line;
-            int sampleRate = (int) format.getSampleRate();
-            int channelCount = Math.max(1, format.getChannels());
-            var ate = settings.isAteEnabled() ? service.createAteStream(settings, sampleRate) : null;
-
-            liveThread = new Thread(() -> {
-                try {
-                    int frames = 4096;
-                    int sampleCount = frames * channelCount;
-                    byte[] inputBytes = new byte[sampleCount * 2];
-                    float[] inputFloats = new float[sampleCount];
-                    float[] outputFloats = new float[sampleCount];
-                    int count;
-                    while ((count = stream.read(inputBytes, 0, inputBytes.length)) > 0) {
-                        int samples = count / 2;
-                        for (int i = 0; i < samples; i++) {
-                            inputFloats[i] = littleToFloat(inputBytes, i);
-                        }
-                        service.processAteStream(ate, inputFloats, outputFloats);
-                        int segments = levelBars.length;
-                        for (int segment = 0; segment < segments; segment++) {
-                            int start = segment * samples / segments;
-                            int end = (segment + 1) * samples / segments;
-                            double sum = 0;
-                            for (int i = start; i < end; i++) {
-                                sum += Math.abs(outputFloats[i]);
-                            }
-                            int segmentCount = end - start;
-                            levelBars[segment] = segmentCount > 0
-                                    ? Math.min(1.0, sum / segmentCount * 2.5)
-                                    : 0;
-                        }
-                        byte[] outputBytes = new byte[samples * 2];
-                        for (int i = 0; i < samples; i++) {
-                            writeFloat(outputFloats[i], outputBytes, i);
-                        }
-                        line.write(outputBytes, 0, outputBytes.length);
-                    }
-                } catch (Exception ex) {
-                    Platform.runLater(() -> nowInfo.setText("Failed: " + ex.getMessage()));
-                } finally {
-                    try {
-                        line.drain();
-                        line.stop();
-                        line.close();
-                    } catch (Exception ignored) {
-                        // Best effort line cleanup.
-                    }
-                    if (ate != null) {
-                        service.destroyAteStream(ate);
-                    }
-                    Platform.runLater(() -> {
-                        liveLine = null;
-                        playPauseButton.setText("\u25B6");
-                    });
-                    if (!userStopped) {
-                        Platform.runLater(this::handleEndOfMedia);
-                    }
-                }
-            }, "live-player");
-            liveThread.setDaemon(true);
-            liveThread.start();
-            playPauseButton.setText("\u23F8");
-        } catch (Exception ex) {
-            nowInfo.setText("Failed: " + ex.getMessage());
-        }
-    }
-
-    private void stopLive() {
-        userStopped = true;
-        if (liveThread != null) {
-            liveThread.interrupt();
-            liveThread = null;
-        }
-        if (liveLine != null) {
-            try {
-                liveLine.stop();
-                liveLine.close();
-            } catch (Exception ignored) {
-                // Best effort.
-            }
-            liveLine = null;
-        }
-    }
-
-    private static float littleToFloat(byte[] bytes, int sampleIndex) {
-        int index = sampleIndex * 2;
-        short value = (short) ((bytes[index] & 0xFF) | (bytes[index + 1] << 8));
-        return value / 32768.0f;
-    }
-
-    private static void writeFloat(float sample, byte[] bytes, int sampleIndex) {
-        int value = Math.round(Math.max(-1.0f, Math.min(1.0f, sample)) * 32767.0f);
-        int index = sampleIndex * 2;
-        bytes[index] = (byte) (value & 0xFF);
-        bytes[index + 1] = (byte) ((value >> 8) & 0xFF);
     }
 
     private Path preparePlayable(Path path) throws Exception {
@@ -405,6 +415,99 @@ public final class MusicPlayerView extends BorderPane {
         playPauseButton.setText("\u23F8");
     }
 
+    private void startLiveDsp(Path wav, ConversionSettings settings) {
+        stopLive();
+        userStopped = false;
+        try {
+            AudioInputStream stream = AudioSystem.getAudioInputStream(wav.toFile());
+            AudioFormat format = stream.getFormat();
+            SourceDataLine line = AudioSystem.getSourceDataLine(format);
+            line.open(format, 8192);
+            line.start();
+            liveLine = line;
+            int sampleRate = (int) format.getSampleRate();
+            int channelCount = Math.max(1, format.getChannels());
+            var ate = settings.isAteEnabled() ? service.createAteStream(settings, sampleRate) : null;
+            liveThread = new Thread(() -> {
+                try {
+                    int frames = 4096;
+                    int sampleCount = frames * channelCount;
+                    byte[] inputBytes = new byte[sampleCount * 2];
+                    float[] inputFloats = new float[sampleCount];
+                    float[] outputFloats = new float[sampleCount];
+                    int count;
+                    while ((count = stream.read(inputBytes, 0, inputBytes.length)) > 0) {
+                        int samples = count / 2;
+                        for (int i = 0; i < samples; i++) {
+                            inputFloats[i] = littleToFloat(inputBytes, i);
+                        }
+                        service.processAteStream(ate, inputFloats, outputFloats);
+                        int segments = levelBars.length;
+                        for (int segment = 0; segment < segments; segment++) {
+                            int start = segment * samples / segments;
+                            int end = (segment + 1) * samples / segments;
+                            double sum = 0;
+                            for (int i = start; i < end; i++) {
+                                sum += Math.abs(outputFloats[i]);
+                            }
+                            int segmentCount = end - start;
+                            levelBars[segment] = segmentCount > 0
+                                    ? Math.min(1.0, sum / segmentCount * 2.5)
+                                    : 0;
+                        }
+                        byte[] outputBytes = new byte[samples * 2];
+                        for (int i = 0; i < samples; i++) {
+                            writeFloat(outputFloats[i], outputBytes, i);
+                        }
+                        line.write(outputBytes, 0, outputBytes.length);
+                    }
+                } catch (Exception ex) {
+                    Platform.runLater(() -> nowInfo.setText("Failed: " + ex.getMessage()));
+                } finally {
+                    try {
+                        line.drain();
+                        line.stop();
+                        line.close();
+                    } catch (Exception ignored) {
+                        // Best effort.
+                    }
+                    if (ate != null) {
+                        service.destroyAteStream(ate);
+                    }
+                    Platform.runLater(() -> {
+                        liveLine = null;
+                        playPauseButton.setText("\u25B6");
+                    });
+                    if (!userStopped) {
+                        Platform.runLater(this::handleEndOfMedia);
+                    }
+                }
+            }, "live-player");
+            liveThread.setDaemon(true);
+            liveThread.start();
+            playPauseButton.setText("\u23F8");
+        } catch (Exception ex) {
+            nowInfo.setText("Failed: " + ex.getMessage());
+        }
+    }
+
+    private void stopLive() {
+        userStopped = true;
+        if (liveThread != null) {
+            liveThread.interrupt();
+            liveThread = null;
+        }
+        if (liveLine != null) {
+            try {
+                liveLine.stop();
+                liveLine.close();
+            } catch (Exception ignored) {
+                // Best effort.
+            }
+            liveLine = null;
+        }
+    }
+
     private void togglePlay() {
         if (liveLine != null) {
             stopLive();
@@ -424,25 +527,21 @@ public final class MusicPlayerView extends BorderPane {
     }
 
     private void previous() {
-        int index = fileList.getSelectionModel().getSelectedIndex();
+        int index = visibleFiles.indexOf(currentPath);
         if (index > 0) {
-            fileList.getSelectionModel().select(index - 1);
+            playFile(visibleFiles.get(index - 1));
         }
     }
 
     private void next() {
         if (shuffle && visibleFiles.size() > 1) {
-            int current = fileList.getSelectionModel().getSelectedIndex();
-            int nextIndex = current;
-            while (nextIndex == current) {
-                nextIndex = random.nextInt(visibleFiles.size());
-            }
-            fileList.getSelectionModel().select(nextIndex);
+            int nextIndex = random.nextInt(visibleFiles.size());
+            playFile(visibleFiles.get(nextIndex));
             return;
         }
-        int index = fileList.getSelectionModel().getSelectedIndex();
+        int index = visibleFiles.indexOf(currentPath);
         if (index >= 0 && index < visibleFiles.size() - 1) {
-            fileList.getSelectionModel().select(index + 1);
+            playFile(visibleFiles.get(index + 1));
         }
     }
 
@@ -467,6 +566,7 @@ public final class MusicPlayerView extends BorderPane {
             favoriteButton.setText("★");
         }
         saveFavorites();
+        applyFilter();
     }
 
     private void showInfo() {
@@ -488,36 +588,6 @@ public final class MusicPlayerView extends BorderPane {
                 Platform.runLater(() -> nowInfo.setText("Failed: " + ex.getMessage()));
             }
         }, "file-info").start();
-    }
-
-    private Path favoriteFile() {
-        return Path.of(System.getProperty("user.home"), ".audio_engine", "favorites.txt");
-    }
-
-    private void loadFavorites() {
-        try {
-            Path file = favoriteFile();
-            if (Files.isRegularFile(file)) {
-                favorites.clear();
-                for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-                    if (!line.isBlank()) {
-                        favorites.add(line);
-                    }
-                }
-            }
-        } catch (IOException ignored) {
-            // First launch or unreadable favorites file.
-        }
-    }
-
-    private void saveFavorites() {
-        try {
-            Path file = favoriteFile();
-            Files.createDirectories(file.getParent());
-            Files.write(file, favorites, StandardCharsets.UTF_8);
-        } catch (IOException ignored) {
-            // Best effort persistence.
-        }
     }
 
     private void loadCover(Path path) {
@@ -578,9 +648,53 @@ public final class MusicPlayerView extends BorderPane {
             }
             allFiles.setAll(loaded);
             applyFilter();
+            loadMetadata();
         } catch (IOException ex) {
             nowInfo.setText("Failed: " + ex.getMessage());
         }
+    }
+
+    private Path favoriteFile() {
+        return Path.of(System.getProperty("user.home"), ".audio_engine", "favorites.txt");
+    }
+
+    private void loadFavorites() {
+        try {
+            Path file = favoriteFile();
+            if (Files.isRegularFile(file)) {
+                favorites.clear();
+                for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                    if (!line.isBlank()) {
+                        favorites.add(line);
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            // First launch or unreadable favorites file.
+        }
+    }
+
+    private void saveFavorites() {
+        try {
+            Path file = favoriteFile();
+            Files.createDirectories(file.getParent());
+            Files.write(file, favorites, StandardCharsets.UTF_8);
+        } catch (IOException ignored) {
+            // Best effort.
+        }
+    }
+
+    private static float littleToFloat(byte[] bytes, int sampleIndex) {
+        int index = sampleIndex * 2;
+        short value = (short) ((bytes[index] & 0xFF) | (bytes[index + 1] << 8));
+        return value / 32768.0f;
+    }
+
+    private static void writeFloat(float sample, byte[] bytes, int sampleIndex) {
+        int value = Math.round(Math.max(-1.0f, Math.min(1.0f, sample)) * 32767.0f);
+        int index = sampleIndex * 2;
+        bytes[index] = (byte) (value & 0xFF);
+        bytes[index + 1] = (byte) ((value >> 8) & 0xFF);
     }
 
     private static String format(long millis) {
@@ -604,18 +718,6 @@ public final class MusicPlayerView extends BorderPane {
             double barHeight = Math.max(1.0, levelBars[i] * (height - 8));
             double x = i * slot + (slot - barWidth) / 2;
             g.fillRect(x, height - barHeight, barWidth, barHeight);
-        }
-    }
-
-    private final class FileCell extends ListCell<Path> {
-        @Override
-        protected void updateItem(Path path, boolean empty) {
-            super.updateItem(path, empty);
-            if (empty || path == null) {
-                setText(null);
-            } else {
-                setText(path.getFileName().toString());
-            }
         }
     }
 }
