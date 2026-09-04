@@ -97,7 +97,7 @@ JPACKAGE_ARGS=(
   --main-jar "audio-engine-gui-1.2.1.jar"
   --main-class "com.losshifi.audioengine.Main"
   --module-path "$DIST"
-  --add-modules "javafx.controls,java.logging,java.naming"
+  --add-modules "javafx.controls,javafx.media,java.logging,java.naming"
   --java-options "-Dprism.order=sw"
 )
 

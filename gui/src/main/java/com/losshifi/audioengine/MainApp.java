@@ -48,6 +48,9 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.media.Media;
+import javafx.scene.media.MediaPlayer;
+import javafx.scene.media.MediaView;
 import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
@@ -116,6 +119,7 @@ public final class MainApp extends Application {
     private final Button removeButton = new Button("移除选中");
     private final Button skipSelectedButton = new Button("跳过选中");
     private final Button applyToSelectedButton = new Button("应用到选中");
+    private final Button previewButton = new Button("预览");
     private final Button responseCompareButton = new Button("响应对比");
     private final Button matchReferenceButton = new Button("音色匹配");
     private final Button ateSelectButton = new Button("选择音频");
@@ -152,6 +156,8 @@ public final class MainApp extends Application {
     private AudioInfo currentInfo;
     private BatchConversionTask batchTask;
     private BatchItem draggedItem;
+    private MediaPlayer previewPlayer;
+    private Stage previewStage;
     private final Set<Integer> recommendedRates = new HashSet<>();
     private final Map<String, AudioInfo> infoCache = new ConcurrentHashMap<>();
     private final Map<String, ResponseCurve> responseCache = new LinkedHashMap<>(64, 0.75f, true) {
@@ -232,6 +238,8 @@ public final class MainApp extends Application {
             Map.entry("重置自定义", "Reset Custom"),
             Map.entry("音色匹配", "Match Reference"),
             Map.entry("匹配中...", "Matching..."),
+            Map.entry("预览", "Preview"),
+            Map.entry("生成中...", "Preparing..."),
             Map.entry("AUTO", "Auto")
     );
     private static final Map<String, String> HANT_TEXT = Map.ofEntries(
@@ -299,6 +307,8 @@ public final class MainApp extends Application {
             Map.entry("重置自定义", "重設自訂"),
             Map.entry("音色匹配", "音色匹配"),
             Map.entry("匹配中...", "匹配中..."),
+            Map.entry("预览", "預覽"),
+            Map.entry("生成中...", "產生中..."),
             Map.entry("AUTO", "自動")
     );
     private static final Map<String, String> HANT_EN_TEXT = Map.ofEntries(
@@ -826,6 +836,7 @@ public final class MainApp extends Application {
                 selected.setStatus("已应用设置");
             }
         });
+        previewButton.setOnAction(event -> previewSelected());
         outputDirLabel.getStyleClass().add("muted-label");
         outputDirLabel.setMaxWidth(220);
         outputDirLabel.setPrefWidth(220);
@@ -833,7 +844,7 @@ public final class MainApp extends Application {
         Region queueActionSpacer = new Region();
         HBox.setHgrow(queueActionSpacer, Priority.ALWAYS);
         HBox queueActions = new HBox(8, removeButton, skipSelectedButton,
-                applyToSelectedButton, queueActionSpacer, outputDirLabel);
+                applyToSelectedButton, previewButton, queueActionSpacer, outputDirLabel);
 
         VBox left = new VBox(10,
                 queueHeader,
@@ -1449,6 +1460,7 @@ public final class MainApp extends Application {
         removeButton.setDisable(!hasSelection || batchRunning);
         skipSelectedButton.setDisable(!hasSelection || batchRunning);
         applyToSelectedButton.setDisable(!hasSelection || batchRunning);
+        previewButton.setDisable(!hasSelection || batchRunning);
         responseCompareButton.setDisable(!hasSelection || batchRunning);
     }
 
@@ -1504,6 +1516,76 @@ public final class MainApp extends Application {
             event.setDropCompleted(completed);
             event.consume();
         });
+    }
+
+    private void previewSelected() {
+        BatchItem selected = fileList.getSelectionModel().getSelectedItem();
+        if (selected == null || batchRunning) {
+            return;
+        }
+        previewButton.setDisable(true);
+        previewButton.setText(translateText("生成中..."));
+        appendLog("生成预览: " + selected.getFileName());
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                Path previewDir = Path.of(System.getProperty("user.home"), ".audio_engine", "preview");
+                Files.createDirectories(previewDir);
+                Path preview = previewDir.resolve("preview_" + Math.abs(selected.getInput().toString().hashCode()) + ".wav");
+                AudioInfo info = selected.getInfo() != null
+                        ? selected.getInfo()
+                        : service.readInfo(selected.getInput().toString());
+                ConversionSettings previewSettings = new ConversionSettings();
+                previewSettings.setMode(ConversionSettings.OutputMode.PCM);
+                previewSettings.setPcmRate(info.getSampleRate());
+                previewSettings.setBitDepth(16);
+                previewSettings.setPcmFormat(ConversionSettings.PcmFormat.WAV);
+                service.convert(selected.getInput().toString(), preview.toString(), previewSettings);
+                return null;
+            }
+        };
+        task.setOnSucceeded(event -> {
+            previewButton.setDisable(false);
+            previewButton.setText(translateText("预览"));
+            try {
+                Path previewPath = Path.of(System.getProperty("user.home"), ".audio_engine", "preview",
+                        "preview_" + Math.abs(selected.getInput().toString().hashCode()) + ".wav");
+                startPreviewPlayer(previewPath);
+            } catch (RuntimeException ex) {
+                appendLog("预览播放失败: " + ex.getMessage());
+            }
+        });
+        task.setOnFailed(event -> {
+            previewButton.setDisable(false);
+            previewButton.setText(translateText("预览"));
+            Throwable error = task.getException();
+            appendLog("预览生成失败: "
+                    + (error == null ? "未知错误" : error.getMessage()));
+        });
+        Thread thread = new Thread(task);
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void startPreviewPlayer(Path previewPath) {
+        if (previewPlayer != null) {
+            previewPlayer.stop();
+        }
+        Media media = new Media(previewPath.toUri().toString());
+        previewPlayer = new MediaPlayer(media);
+        previewPlayer.setOnEndOfMedia(() -> previewPlayer.seek(javafx.util.Duration.ZERO));
+        MediaView mediaView = new MediaView(previewPlayer);
+        mediaView.setFitWidth(680);
+        mediaView.setFitHeight(380);
+        if (previewStage == null) {
+            previewStage = new Stage();
+            previewStage.setTitle(translateText("预览"));
+            VBox box = new VBox(10, mediaView);
+            box.setPadding(new Insets(12));
+            previewStage.setScene(new Scene(box, 704, 404));
+        }
+        previewStage.show();
+        previewPlayer.play();
     }
 
     private void matchReferenceTone() {
