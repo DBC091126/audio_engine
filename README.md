@@ -25,6 +25,9 @@ are secondary tools accessible from the same navigation.
 - JavaFX dashboard with batch conversion, drag/drop, and cached analysis.
 - Music-player view with folder scanning, search-based library, play/pause,
   previous/next, seeking, and engine-backed playback for FLAC/OGG/DSD etc.
+- Real-time ATE DSP through `SourceDataLine`: when ATE is enabled in the player,
+  decoded PCM is streamed through the Rust ATE engine before it reaches the
+  sound card.
 - Batch per-file ATE overrides, skip selection, queue reorder, parallel conversion,
   and automatic conflict renaming.
 - Playback preview that turns FLAC/OGG/DSD etc. into a temporary WAV.

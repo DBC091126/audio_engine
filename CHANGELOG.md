@@ -30,6 +30,8 @@
   longer need a second full Float32 buffer during ATE processing.
 - Added a player-first user interface: music library, search, playback controls,
   and engine-backed temporary WAV decoding for unsupported system formats.
+- Added real-time ATE playback through `SourceDataLine` and the new
+  `ate_stream_create/process/destroy` FFI API.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0
