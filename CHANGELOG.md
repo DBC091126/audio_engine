@@ -37,6 +37,7 @@
 - Added M3U playlist import/export and local cover-art detection.
 - Reworked the player into a foobar-style column playlist with metadata columns,
   All/Favorites source toggle, and a sample-rate/channel status bar.
+- Added player keyboard shortcuts and system tray integration.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0

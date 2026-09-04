@@ -35,6 +35,9 @@ are secondary tools accessible from the same navigation.
 - Foobar-style column playlist view with `# / Title / Artist / Album / Duration`
   columns, All/Favorites source toggle, background metadata loading, and a
   playback status bar.
+- Keyboard shortcuts: Space toggles play, Left/Right switch track, and Ctrl+F
+  focuses search.
+- System tray integration with Show and Exit actions.
 - Batch per-file ATE overrides, skip selection, queue reorder, parallel conversion,
   and automatic conflict renaming.
 - Playback preview that turns FLAC/OGG/DSD etc. into a temporary WAV.
