@@ -8,6 +8,10 @@ The engine decodes common compressed and lossless formats, resamples with the
 high-quality `SRC_SINC_BEST_QUALITY` algorithm, converts PCM to DSD, and applies
 the ATE analog texture engine. It ships as a Rust core with a JavaFX GUI.
 
+The product is organized as a music player first: the library, search, and
+playback UI is the main screen, while ATE tone processing and PCM/DSD conversion
+are secondary tools accessible from the same navigation.
+
 ## Highlights
 
 - Decode WAV, FLAC, MP3, OGG Vorbis, Opus, and AAC/M4A into Float32.
@@ -19,6 +23,8 @@ the ATE analog texture engine. It ships as a Rust core with a JavaFX GUI.
 - Before/after frequency-response comparison for the ATE pipeline.
 - Reference-tone matching that derives even/odd harmonic settings from a track.
 - JavaFX dashboard with batch conversion, drag/drop, and cached analysis.
+- Music-player view with folder scanning, search-based library, play/pause,
+  previous/next, seeking, and engine-backed playback for FLAC/OGG/DSD etc.
 - Batch per-file ATE overrides, skip selection, queue reorder, parallel conversion,
   and automatic conflict renaming.
 - Playback preview that turns FLAC/OGG/DSD etc. into a temporary WAV.

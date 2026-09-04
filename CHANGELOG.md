@@ -28,6 +28,8 @@
 - Added streaming DSD-to-PCM conversion that writes directly to the output file.
 - Added a stateful streaming ATE path for same-rate conversions so long songs no
   longer need a second full Float32 buffer during ATE processing.
+- Added a player-first user interface: music library, search, playback controls,
+  and engine-backed temporary WAV decoding for unsupported system formats.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0
