@@ -58,6 +58,11 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 import java.awt.Desktop;
+import java.awt.MenuItem;
+import java.awt.PopupMenu;
+import java.awt.SystemTray;
+import java.awt.TrayIcon;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
@@ -525,6 +530,37 @@ public final class MainApp extends Application {
         }
         stage.setScene(playerScene);
         stage.show();
+        setupTray();
+    }
+
+    private void setupTray() {
+        if (!SystemTray.isSupported()) {
+            return;
+        }
+        PopupMenu menu = new PopupMenu();
+        MenuItem show = new MenuItem("Show");
+        show.addActionListener(event -> Platform.runLater(() -> {
+            stage.show();
+            stage.setScene(playerScene);
+            stage.toFront();
+        }));
+        MenuItem exit = new MenuItem("Exit");
+        exit.addActionListener(event -> Platform.runLater(Platform::exit));
+        menu.add(show);
+        menu.add(exit);
+        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                image.setRGB(x, y, x == y ? 0xFF4DC1FF : 0xFF141a24);
+            }
+        }
+        TrayIcon icon = new TrayIcon(image, "Audio Engine", menu);
+        icon.setImageAutoSize(true);
+        try {
+            SystemTray.getSystemTray().add(icon);
+        } catch (java.awt.AWTException ignored) {
+            // Tray is optional on some desktops.
+        }
     }
 
     private void showDashboard() {
