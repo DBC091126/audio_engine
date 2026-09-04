@@ -9,6 +9,7 @@ use crate::ate::{
 use crate::decode_file;
 use crate::decoder::{decode_preview_seconds, probe_file, AudioData};
 use crate::dsd::{encode_dff, encode_dsf};
+use crate::dsd::decode_dsd_to_pcm_file;
 use crate::dsd_modulator::pcm_to_dsd;
 use crate::encoder::{PcmFormat, PcmStreamWriter};
 use crate::pipeline::{dsd_mode_from_u32, dsd_working_rate, resample_to_vec};
@@ -550,6 +551,11 @@ fn process_pcm_file(
         _ => return Err(anyhow!("invalid PCM output format")),
     };
 
+    if ate_enable == 0 && is_dsd_input(input) {
+        decode_dsd_to_pcm_file(input, output, target_rate, bit_depth, format)?;
+        return Ok(());
+    }
+
     let resampled = if audio.sample_rate == target_rate {
         None
     } else {
@@ -583,6 +589,16 @@ fn process_pcm_file(
         audio.channels,
         pcm,
     )
+}
+
+fn is_dsd_input(path: &str) -> bool {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            let ext = ext.to_ascii_lowercase();
+            ext == "dsf" || ext == "dff"
+        })
 }
 
 fn write_pcm_writer(

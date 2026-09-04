@@ -5,6 +5,7 @@ use std::io::{BufWriter, Write};
 use anyhow::{anyhow, Context};
 
 use crate::decoder::AudioData;
+use crate::encoder::{PcmFormat, PcmStreamWriter};
 
 const DSF_BLOCK_SIZE: usize = 4096;
 const DSF_FMT_CHUNK_SIZE: u64 = 52;
@@ -226,6 +227,74 @@ pub fn dsd_to_pcm(stream: &DsdStream, output_rate: u32) -> Result<AudioData, any
         total_frames: frames as u64,
         metadata: HashMap::new(),
     })
+}
+
+/// Decode a DSF/DFF file directly to a PCM file in fixed-size blocks.
+///
+/// This keeps memory bounded by the block size instead of materializing the
+/// complete Float32 PCM stream.
+pub fn decode_dsd_to_pcm_file(
+    path: &str,
+    output_path: &str,
+    output_rate: u32,
+    bit_depth: u16,
+    format: PcmFormat,
+) -> Result<(), anyhow::Error> {
+    let stream = if extension(path).as_deref() == Some("dsf") {
+        decode_dsf(path)?
+    } else {
+        decode_dff(path)?
+    };
+    let channels = usize::from(stream.channels);
+    if stream.sample_rate == 0 || output_rate == 0 {
+        return Err(anyhow!("DSD and PCM sample rates must be greater than zero"));
+    }
+    let ratio = (stream.sample_rate / output_rate) as usize;
+    if ratio == 0 || ratio > 256 {
+        return Err(anyhow!("unsupported DSD-to-PCM ratio {ratio}"));
+    }
+
+    let bytes_per_channel = stream.data.len() / channels;
+    let bits_per_channel = bytes_per_channel * 8;
+    let total_frames = bits_per_channel / ratio;
+    let mut writer = PcmStreamWriter::create(
+        output_path,
+        output_rate,
+        stream.channels,
+        bit_depth,
+        format,
+        &HashMap::new(),
+    )?;
+
+    const BLOCK_FRAMES: usize = 4096;
+    let mut frame = 0usize;
+    while frame < total_frames {
+        let take = BLOCK_FRAMES.min(total_frames - frame);
+        let mut block = Vec::with_capacity(take * channels);
+        for offset in 0..take {
+            let start = (frame + offset) * ratio;
+            for channel in 0..channels {
+                let mut sum = 0.0f32;
+                for bit in 0..ratio {
+                    let bit_index = start + bit;
+                    let byte = stream.data[(bit_index / 8) * channels + channel];
+                    let mask = 1u8 << (7 - (bit_index % 8));
+                    sum += if byte & mask != 0 { 1.0 } else { -1.0 };
+                }
+                block.push(sum / ratio as f32);
+            }
+        }
+        writer.write_block(&block)?;
+        frame += take;
+    }
+    writer.finish()
+}
+
+fn extension(path: &str) -> Option<String> {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
 }
 
 /// Write a DSDIFF/DFF container around a packed DSD stream.
