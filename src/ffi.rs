@@ -1,4 +1,5 @@
 use std::ffi::CStr;
+use std::ffi::c_void;
 use std::os::raw::c_char;
 
 use anyhow::{anyhow, Error};
@@ -16,6 +17,80 @@ use crate::encoder::{PcmFormat, PcmStreamWriter};
 use crate::pipeline::{dsd_mode_from_u32, dsd_working_rate, resample_to_vec};
 
 const PROCESS_BLOCK_FRAMES: usize = 4096;
+
+/// Create a real-time stereo ATE stream for the player.
+#[unsafe(no_mangle)]
+pub extern "C" fn ate_stream_create(
+    ate_enable: u8,
+    ate_style: u8,
+    ate_intensity: f32,
+    noise_db: f32,
+    jitter_ps: f32,
+    phase_deg: f32,
+    crossover_depth: f32,
+    even_harmonics: f32,
+    odd_harmonics: f32,
+    sample_rate: u32,
+) -> *mut c_void {
+    if ate_enable == 0 || sample_rate == 0 {
+        return std::ptr::null_mut();
+    }
+    let controls = AteControls {
+        noise_db,
+        jitter_ps,
+        phase_deg,
+        crossover_depth,
+        even_harmonics,
+        odd_harmonics,
+    };
+    let config = ate_config(ate_enable, ate_style, ate_intensity, sample_rate, controls);
+    match AteStream::new(&config, sample_rate) {
+        Ok(stream) => Box::into_raw(Box::new(stream)) as *mut c_void,
+        Err(message) => {
+            eprintln!("[FFI ERROR] ate_stream_create failed: {message}");
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Process one interleaved stereo Float32 block through an ATE stream.
+///
+/// Returns 0 on success and -1 on invalid input or buffer mismatch.
+#[unsafe(no_mangle)]
+pub extern "C" fn ate_stream_process(
+    handle: *mut c_void,
+    input: *const f32,
+    output: *mut f32,
+    frames: usize,
+) -> i32 {
+    if handle.is_null() || input.is_null() || output.is_null() || frames == 0 {
+        return -1;
+    }
+    let stream = unsafe { &mut *(handle as *mut AteStream) };
+    let input_slice = unsafe { std::slice::from_raw_parts(input, frames * 2) };
+    let processed = stream.process_stereo_block(input_slice);
+    if processed.len() != frames * 2 {
+        return -1;
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            processed.as_ptr(),
+            output,
+            processed.len(),
+        );
+    }
+    0
+}
+
+/// Destroy a real-time ATE stream.
+#[unsafe(no_mangle)]
+pub extern "C" fn ate_stream_destroy(handle: *mut c_void) {
+    if !handle.is_null() {
+        unsafe {
+            drop(Box::from_raw(handle as *mut AteStream));
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct AteControls {

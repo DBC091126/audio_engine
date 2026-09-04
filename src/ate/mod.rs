@@ -481,4 +481,15 @@ mod tests {
         assert_eq!(output.len(), input.len());
         assert!(output.iter().any(|&sample| sample.is_finite() && sample.abs() > 1.0e-6));
     }
+
+    #[test]
+    fn ate_stream_blocks_preserve_frame_count() {
+        let input = vec![0.1f32; 4096 * 2];
+        let config = presets::make_config(AtePreset::Tube, OversamplingMode::X4, 0.5, 1, false);
+        let mut stream = AteStream::new(&config, 44_100).unwrap();
+        for _ in 0..5 {
+            let output = stream.process_stereo_block(&input);
+            assert_eq!(output.len(), input.len());
+        }
+    }
 }

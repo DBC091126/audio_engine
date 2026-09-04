@@ -83,6 +83,22 @@ public interface AudioEngineLibrary extends Library {
 
     int analyze_reference(String inputPath, Pointer buffer, long bufferSize);
 
+    Pointer ate_stream_create(
+            byte ateEnable,
+            byte ateStyle,
+            float ateIntensity,
+            float noiseDb,
+            float jitterPs,
+            float phaseDeg,
+            float crossoverDepth,
+            float evenHarmonics,
+            float oddHarmonics,
+            int sampleRate);
+
+    int ate_stream_process(Pointer handle, Pointer input, Pointer output, int frames);
+
+    void ate_stream_destroy(Pointer handle);
+
     static AudioEngineLibrary load() {
         String configured = System.getProperty("audio_engine.library.path");
         if (configured != null && !configured.isBlank()) {

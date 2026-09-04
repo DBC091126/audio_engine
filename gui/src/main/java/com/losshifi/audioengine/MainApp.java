@@ -438,7 +438,7 @@ public final class MainApp extends Application {
         dashboardRoot = buildDashboard();
         dashboardScene = new Scene(dashboardRoot, 1240, 820);
         dashboardScene.getStylesheets().add(getClass().getResource("themes.css").toExternalForm());
-        playerView = new MusicPlayerView(service, stage);
+        playerView = new MusicPlayerView(service, stage, this::collectSettings);
         playerRoot = new BorderPane();
         playerRoot.setTop(buildPlayerNav());
         playerRoot.setCenter(playerView);

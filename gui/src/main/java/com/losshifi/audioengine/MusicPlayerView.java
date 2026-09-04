@@ -21,6 +21,10 @@ import javafx.scene.media.MediaPlayer;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
 
+import javax.sound.sampled.AudioFormat;
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.SourceDataLine;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 public final class MusicPlayerView extends BorderPane {
@@ -37,6 +42,7 @@ public final class MusicPlayerView extends BorderPane {
 
     private final AudioEngineService service;
     private final Stage stage;
+    private final Supplier<ConversionSettings> settingsSupplier;
     private final ObservableList<Path> allFiles = FXCollections.observableArrayList();
     private final ObservableList<Path> visibleFiles = FXCollections.observableArrayList();
     private final ListView<Path> fileList = new ListView<>(visibleFiles);
@@ -53,13 +59,19 @@ public final class MusicPlayerView extends BorderPane {
 
     private final Map<Path, Path> wavCache = new HashMap<>();
     private MediaPlayer mediaPlayer;
+    private SourceDataLine liveLine;
+    private Thread liveThread;
     private Path currentPath;
     private long mediaDurationMs;
     private boolean wasPlaying;
 
-    public MusicPlayerView(AudioEngineService service, Stage stage) {
+    public MusicPlayerView(
+            AudioEngineService service,
+            Stage stage,
+            Supplier<ConversionSettings> settingsSupplier) {
         this.service = service;
         this.stage = stage;
+        this.settingsSupplier = settingsSupplier;
         setTop(buildToolbar());
         setCenter(fileList);
         setBottom(buildNowPlaying());
@@ -162,14 +174,112 @@ public final class MusicPlayerView extends BorderPane {
     private void playFile(Path path) {
         currentPath = path;
         nowTitle.setText(path.getFileName().toString());
+        ConversionSettings settings = settingsSupplier.get();
         new Thread(() -> {
             try {
                 Path wav = preparePlayable(path);
-                Platform.runLater(() -> startMedia(wav));
+                Platform.runLater(() -> startPlayback(wav, settings));
             } catch (Exception ex) {
                 Platform.runLater(() -> nowInfo.setText("Failed: " + ex.getMessage()));
             }
         }, "player-prepare").start();
+    }
+
+    private void startPlayback(Path wav, ConversionSettings settings) {
+        if (settings.isAteEnabled()) {
+            startLiveDsp(wav, settings);
+        } else {
+            startMedia(wav);
+        }
+    }
+
+    private void startLiveDsp(Path wav, ConversionSettings settings) {
+        stopLive();
+        try {
+            AudioInputStream stream = AudioSystem.getAudioInputStream(wav.toFile());
+            AudioFormat format = stream.getFormat();
+            SourceDataLine line = AudioSystem.getSourceDataLine(format);
+            line.open(format, 8192);
+            line.start();
+            liveLine = line;
+            int sampleRate = (int) format.getSampleRate();
+            int channelCount = Math.max(1, format.getChannels());
+            var ate = settings.isAteEnabled() ? service.createAteStream(settings, sampleRate) : null;
+
+            liveThread = new Thread(() -> {
+                try {
+                    int frames = 4096;
+                    int sampleCount = frames * channelCount;
+                    byte[] inputBytes = new byte[sampleCount * 2];
+                    float[] inputFloats = new float[sampleCount];
+                    float[] outputFloats = new float[sampleCount];
+                    int count;
+                    while ((count = stream.read(inputBytes, 0, inputBytes.length)) > 0) {
+                        int samples = count / 2;
+                        for (int i = 0; i < samples; i++) {
+                            inputFloats[i] = littleToFloat(inputBytes, i);
+                        }
+                        service.processAteStream(ate, inputFloats, outputFloats);
+                        byte[] outputBytes = new byte[samples * 2];
+                        for (int i = 0; i < samples; i++) {
+                            writeFloat(outputFloats[i], outputBytes, i);
+                        }
+                        line.write(outputBytes, 0, outputBytes.length);
+                    }
+                } catch (Exception ex) {
+                    Platform.runLater(() -> nowInfo.setText("Failed: " + ex.getMessage()));
+                } finally {
+                    try {
+                        line.drain();
+                        line.stop();
+                        line.close();
+                    } catch (Exception ignored) {
+                        // Best effort line cleanup.
+                    }
+                    if (ate != null) {
+                        service.destroyAteStream(ate);
+                    }
+                    Platform.runLater(() -> {
+                        liveLine = null;
+                        playPauseButton.setText("\u25B6");
+                    });
+                }
+            }, "live-player");
+            liveThread.setDaemon(true);
+            liveThread.start();
+            playPauseButton.setText("\u23F8");
+        } catch (Exception ex) {
+            nowInfo.setText("Failed: " + ex.getMessage());
+        }
+    }
+
+    private void stopLive() {
+        if (liveThread != null) {
+            liveThread.interrupt();
+            liveThread = null;
+        }
+        if (liveLine != null) {
+            try {
+                liveLine.stop();
+                liveLine.close();
+            } catch (Exception ignored) {
+                // Best effort.
+            }
+            liveLine = null;
+        }
+    }
+
+    private static float littleToFloat(byte[] bytes, int sampleIndex) {
+        int index = sampleIndex * 2;
+        short value = (short) ((bytes[index] & 0xFF) | (bytes[index + 1] << 8));
+        return value / 32768.0f;
+    }
+
+    private static void writeFloat(float sample, byte[] bytes, int sampleIndex) {
+        int value = Math.round(Math.max(-1.0f, Math.min(1.0f, sample)) * 32767.0f);
+        int index = sampleIndex * 2;
+        bytes[index] = (byte) (value & 0xFF);
+        bytes[index + 1] = (byte) ((value >> 8) & 0xFF);
     }
 
     private Path preparePlayable(Path path) throws Exception {
@@ -192,6 +302,7 @@ public final class MusicPlayerView extends BorderPane {
     }
 
     private void startMedia(Path wav) {
+        stopLive();
         if (mediaPlayer != null) {
             mediaPlayer.stop();
         }
@@ -220,6 +331,11 @@ public final class MusicPlayerView extends BorderPane {
     }
 
     private void togglePlay() {
+        if (liveLine != null) {
+            stopLive();
+            playPauseButton.setText("\u25B6");
+            return;
+        }
         if (mediaPlayer == null) {
             return;
         }

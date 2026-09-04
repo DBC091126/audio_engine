@@ -1,6 +1,7 @@
 package com.losshifi.audioengine;
 
 import com.sun.jna.Memory;
+import com.sun.jna.Pointer;
 import com.sun.jna.ptr.DoubleByReference;
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.ShortByReference;
@@ -105,6 +106,42 @@ public final class AudioEngineService {
             throw new IOException("analyze_reference failed with code " + rc);
         }
         return ReferenceProfile.parse(buffer.getString(0, StandardCharsets.UTF_8.name()));
+    }
+
+    public Pointer createAteStream(ConversionSettings settings, int sampleRate) {
+        return library.ate_stream_create(
+                (byte) (settings.isAteEnabled() ? 1 : 0),
+                (byte) settings.getAteStyle().getCode(),
+                (float) settings.getAteIntensity(),
+                (float) settings.getAteNoiseDb(),
+                (float) settings.getAteJitterPs(),
+                (float) settings.getAtePhaseDeg(),
+                (float) settings.getAteCrossoverDepth(),
+                (float) settings.getAteEvenHarmonics(),
+                (float) settings.getAteOddHarmonics(),
+                sampleRate);
+    }
+
+    public void processAteStream(Pointer handle, float[] input, float[] output)
+            throws IOException {
+        if (handle == null) {
+            System.arraycopy(input, 0, output, 0, Math.min(input.length, output.length));
+            return;
+        }
+        Memory inputMemory = new Memory(Math.max(1, input.length) * 4L);
+        Memory outputMemory = new Memory(Math.max(1, output.length) * 4L);
+        inputMemory.write(0, input, 0, input.length);
+        int rc = library.ate_stream_process(handle, inputMemory, outputMemory, input.length / 2);
+        if (rc != 0) {
+            throw new IOException("ate_stream_process failed with code " + rc);
+        }
+        outputMemory.read(0, output, 0, output.length);
+    }
+
+    public void destroyAteStream(Pointer handle) {
+        if (handle != null) {
+            library.ate_stream_destroy(handle);
+        }
     }
 
     public static final class ReferenceProfile {
