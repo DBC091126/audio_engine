@@ -146,8 +146,11 @@ public final class MainApp extends Application {
     private Stage stage;
     private BorderPane root;
     private BorderPane dashboardRoot;
+    private BorderPane playerRoot;
     private Scene converterScene;
     private Scene dashboardScene;
+    private Scene playerScene;
+    private MusicPlayerView playerView;
     private TabPane settingsTabs;
     private TechField techField;
     private String language = "English";
@@ -350,7 +353,14 @@ public final class MainApp extends Application {
             Map.entry("LANG: 繁", "語言：繁"),
             Map.entry("LANG: 简", "語言：簡"),
             Map.entry("BACK", "返回"),
-            Map.entry("Audio Engine", "音訊引擎")
+            Map.entry("Audio Engine", "音訊引擎"),
+            Map.entry("Add Folder", "新增資料夾"),
+            Map.entry("Search", "搜尋"),
+            Map.entry("Nothing playing", "未在播放"),
+            Map.entry("Failed: ", "失敗: "),
+            Map.entry("LIBRARY", "音樂庫"),
+            Map.entry("TONE LAB", "音色實驗室"),
+            Map.entry("CONVERTER", "轉換器")
     );
     private static final Map<String, String> HANS_EN_TEXT = Map.ofEntries(
             Map.entry("AUDIO ENGINE", "音频引擎"),
@@ -381,7 +391,14 @@ public final class MainApp extends Application {
             Map.entry("LANG: 简", "语言：简"),
             Map.entry("BACK", "返回"),
             Map.entry("AUTO", "自动"),
-            Map.entry("Audio Engine", "音频引擎")
+            Map.entry("Audio Engine", "音频引擎"),
+            Map.entry("Add Folder", "添加文件夹"),
+            Map.entry("Search", "搜索"),
+            Map.entry("Nothing playing", "未在播放"),
+            Map.entry("Failed: ", "失败: "),
+            Map.entry("LIBRARY", "音乐库"),
+            Map.entry("TONE LAB", "音色实验室"),
+            Map.entry("CONVERTER", "转换器")
     );
     private final ExecutorService infoExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r);
@@ -421,6 +438,12 @@ public final class MainApp extends Application {
         dashboardRoot = buildDashboard();
         dashboardScene = new Scene(dashboardRoot, 1240, 820);
         dashboardScene.getStylesheets().add(getClass().getResource("themes.css").toExternalForm());
+        playerView = new MusicPlayerView(service, stage);
+        playerRoot = new BorderPane();
+        playerRoot.setTop(buildPlayerNav());
+        playerRoot.setCenter(playerView);
+        playerScene = new Scene(playerRoot, 1240, 820);
+        playerScene.getStylesheets().add(getClass().getResource("themes.css").toExternalForm());
         stage.setTitle("Audio Engine");
 
         fileList.setCellFactory(list -> new BatchCell());
@@ -474,6 +497,7 @@ public final class MainApp extends Application {
         updateCommandState();
         recordTextSources(dashboardScene.getRoot());
         recordTextSources(converterScene.getRoot());
+        recordTextSources(playerScene.getRoot());
         setLanguage(config.get("language", "English"));
 
         List<File> initialFiles = getParameters().getRaw().stream()
@@ -482,14 +506,9 @@ public final class MainApp extends Application {
                 .collect(Collectors.toList());
         if (!initialFiles.isEmpty()) {
             addFiles(initialFiles);
-            showConverter();
-        } else {
-            showDashboard();
         }
+        stage.setScene(playerScene);
         stage.show();
-        if (techField != null && stage.getScene() == dashboardScene) {
-            techField.start();
-        }
     }
 
     private void showDashboard() {
@@ -787,6 +806,30 @@ public final class MainApp extends Application {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox bar = new HBox(10, backButton, brand, spacer, languageBox,
                 addButton, outputButton, clearButton, updateButton);
+        bar.setAlignment(Pos.CENTER_LEFT);
+        bar.setPadding(new Insets(12));
+        bar.getStyleClass().add("panel");
+        return bar;
+    }
+
+    private Node buildPlayerNav() {
+        Label brand = new Label("Audio Engine");
+        brand.getStyleClass().add("brand");
+        Button libraryButton = new Button("LIBRARY");
+        libraryButton.getStyleClass().add("player-nav-active");
+        libraryButton.setDisable(true);
+        Button toneButton = new Button("TONE LAB");
+        toneButton.setOnAction(event -> {
+            settingsTabs.getSelectionModel().select(1);
+            showConverter();
+        });
+        Button converterButton = new Button("CONVERTER");
+        converterButton.setOnAction(event -> showConverter());
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox bar = new HBox(10, brand, libraryButton, toneButton, converterButton,
+                spacer, updateButton);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(12));
         bar.getStyleClass().add("panel");
