@@ -89,6 +89,7 @@ public final class MainApp extends Application {
     private final ComboBox<ConversionSettings.PcmFormat> pcmFormatBox = new ComboBox<>();
     private final ComboBox<ConversionSettings.DsdMode> dsdModeBox = new ComboBox<>();
     private final ComboBox<ConversionSettings.DsdFormat> dsdFormatBox = new ComboBox<>();
+    private final ComboBox<Integer> parallelismBox = new ComboBox<>();
     private final CheckBox ateCheck = new CheckBox("启用 ATE");
     private final ComboBox<ConversionSettings.AteStyle> ateStyleBox = new ComboBox<>();
     private final Slider ateIntensitySlider = new Slider(0, 1, 0.5);
@@ -245,6 +246,7 @@ public final class MainApp extends Application {
             Map.entry("检查更新", "Check Updates"),
             Map.entry("当前系统无法打开浏览器", "Browser is unavailable"),
             Map.entry("打开更新页面失败: ", "Failed to open update page: "),
+            Map.entry("并行", "Parallelism"),
             Map.entry("AUTO", "Auto")
     );
     private static final Map<String, String> HANT_TEXT = Map.ofEntries(
@@ -317,6 +319,7 @@ public final class MainApp extends Application {
             Map.entry("检查更新", "檢查更新"),
             Map.entry("当前系统无法打开浏览器", "目前系統無法開啟瀏覽器"),
             Map.entry("打开更新页面失败: ", "開啟更新頁面失敗: "),
+            Map.entry("并行", "並行"),
             Map.entry("AUTO", "自動")
     );
     private static final Map<String, String> HANT_EN_TEXT = Map.ofEntries(
@@ -922,6 +925,8 @@ public final class MainApp extends Application {
         pcmFormatBox.setItems(FXCollections.observableArrayList(ConversionSettings.PcmFormat.values()));
         dsdModeBox.setItems(FXCollections.observableArrayList(ConversionSettings.DsdMode.values()));
         dsdFormatBox.setItems(FXCollections.observableArrayList(ConversionSettings.DsdFormat.values()));
+        parallelismBox.setItems(FXCollections.observableArrayList(1, 2, 3, 4));
+        parallelismBox.setValue(2);
 
         VBox pcmPanel = formGrid(
                 new Label("采样率"), pcmRateBox,
@@ -939,7 +944,8 @@ public final class MainApp extends Application {
                 sectionTitle("输出模式"),
                 new HBox(18, pcmRadio, dsdRadio),
                 sectionTitle("格式参数"),
-                pcmPanel, dsdPanel);
+                pcmPanel, dsdPanel,
+                new Label("并行"), parallelismBox);
         panel.setPadding(new Insets(12));
         return panel;
     }
@@ -1290,6 +1296,7 @@ public final class MainApp extends Application {
         settings.setAteCrossoverDepth(ateCrossoverSlider.getValue());
         settings.setAteEvenHarmonics(ateEvenHarmonicSlider.getValue());
         settings.setAteOddHarmonics(ateOddHarmonicSlider.getValue());
+        settings.setParallelism(parallelismBox.getValue() == null ? 2 : parallelismBox.getValue());
         return settings;
     }
 
@@ -1325,6 +1332,7 @@ public final class MainApp extends Application {
         ateCrossoverSlider.setValue(config.getDouble("ate_crossover_depth", 0));
         ateEvenHarmonicSlider.setValue(config.getDouble("ate_even_harmonics", 1.0));
         ateOddHarmonicSlider.setValue(config.getDouble("ate_odd_harmonics", 1.0));
+        parallelismBox.setValue(config.getInt("parallelism", 2));
         try {
             ateStyleBox.setValue(ConversionSettings.AteStyle.valueOf(
                     config.get("ate_style", "TUBE")));
@@ -1350,6 +1358,7 @@ public final class MainApp extends Application {
         config.set("ate_crossover_depth", String.valueOf(settings.getAteCrossoverDepth()));
         config.set("ate_even_harmonics", String.valueOf(settings.getAteEvenHarmonics()));
         config.set("ate_odd_harmonics", String.valueOf(settings.getAteOddHarmonics()));
+        config.set("parallelism", String.valueOf(settings.getParallelism()));
         saveConfig();
     }
 
@@ -1494,6 +1503,7 @@ public final class MainApp extends Application {
         pcmFormatBox.setDisable(!enabled);
         dsdModeBox.setDisable(!enabled);
         dsdFormatBox.setDisable(!enabled);
+        parallelismBox.setDisable(!enabled);
         ateCheck.setDisable(!enabled);
         ateStyleBox.setDisable(!enabled);
         ateIntensitySlider.setDisable(!enabled);

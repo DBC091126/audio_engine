@@ -6,7 +6,12 @@ import javafx.concurrent.Task;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -33,94 +38,129 @@ public final class BatchConversionTask extends Task<Void> {
     @Override
     protected Void call() throws Exception {
         int total = items.size();
-        int done = 0;
-        for (BatchItem item : items) {
+        AtomicInteger completed = new AtomicInteger(0);
+        ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, settings.getParallelism()));
+        List<Future<?>> futures = new ArrayList<>();
+
+        for (int index = 0; index < items.size(); index++) {
+            final BatchItem item = items.get(index);
+            if (item.isSkipped()) {
+                Platform.runLater(() -> item.setStatus("已跳过"));
+                completed.incrementAndGet();
+                updateProgress((double) completed.get() / total, 1.0);
+                continue;
+            }
+            final int taskIndex = index;
+            futures.add(executor.submit(() -> processItem(item, taskIndex, total, completed)));
+        }
+        executor.shutdown();
+
+        while (!futures.isEmpty()) {
             if (isCancelled()) {
-                Platform.runLater(() -> item.setStatus("已取消"));
+                for (Future<?> future : futures) {
+                    future.cancel(true);
+                }
+                executor.shutdownNow();
+                setCancelledItems();
                 updateMessage("任务已取消");
                 throw new InterruptedException("cancelled");
             }
-            if (item.isSkipped()) {
-                Platform.runLater(() -> item.setStatus("已跳过"));
-                done++;
-                updateProgress((double) done / total, 1.0);
-                continue;
-            }
-
-            Platform.runLater(() -> item.setStatus("处理中"));
-            updateProgress(Math.max(0.01, (double) done / total), 1.0);
-
-            AtomicBoolean stop = null;
-            Thread monitor = null;
+            Future<?> next = futures.remove(0);
             try {
-                Path input = item.getInput();
-                AudioInfo info = item.getInfo() != null
-                        ? item.getInfo()
-                        : service.readInfo(input.toString());
-                item.setInfo(info);
-
-                ConversionSettings requested = item.getAteOverride() != null
-                        ? item.getAteOverride()
-                        : settings;
-                ConversionSettings effectiveSettings = requested;
-                if (requested.getMode() == ConversionSettings.OutputMode.PCM) {
-                    int resolvedRate = compatiblePcmRate(info, requested);
-                    if (resolvedRate != requested.getPcmRate()) {
-                        effectiveSettings = requested.copyWithPcmRate(resolvedRate);
-                        logSink.accept("目标采样率调整为 " + resolvedRate
-                                + " Hz（" + familyLabel(info) + "）");
-                    }
-                }
-                String output = deriveOutput(input, outputDir, effectiveSettings);
-                Files.deleteIfExists(Path.of(output));
-
-                long expectedBytes = estimateBytes(info, effectiveSettings);
-                AtomicBoolean threadStop = new AtomicBoolean(false);
-                stop = threadStop;
-                int itemIndex = done;
-                Thread localMonitor = new Thread(() ->
-                        monitorOutput(output, expectedBytes, item, itemIndex, total, threadStop));
-                monitor = localMonitor;
-                monitor.setDaemon(true);
-                monitor.start();
-
-                Platform.runLater(() -> item.setProgress(0.02));
-                updateMessage("开始转换: " + item.getFileName());
-                logSink.accept("开始转换: " + item.getFileName());
-
-                service.convert(input.toString(), output, effectiveSettings);
-
-                if (Thread.interrupted()) {
-                    throw new InterruptedException("cancelled after native call");
-                }
-
-                Platform.runLater(() -> {
-                    item.setProgress(1.0);
-                    item.setStatus("完成");
-                    item.appendLog("输出: " + output);
-                });
-                logSink.accept("完成: " + item.getFileName() + " -> " + output);
-            } catch (IOException | RuntimeException ex) {
-                Platform.runLater(() -> {
-                    item.setStatus("失败");
-                    item.appendLog(ex.getMessage() == null ? ex.toString() : ex.getMessage());
-                });
-                logSink.accept("失败: " + item.getFileName() + " - "
-                        + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
-            } finally {
-                if (stop != null) {
-                    stop.set(true);
-                }
-                if (monitor != null) {
-                    monitor.interrupt();
-                }
+                next.get();
+            } catch (java.util.concurrent.CancellationException ignored) {
+                // Item was cancelled; overall task is already handling cancellation.
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw ex;
+            } catch (java.util.concurrent.ExecutionException ex) {
+                Platform.runLater(() -> logSink.accept("任务异常: " + ex.getCause()));
             }
-
-            done++;
-            updateProgress((double) done / total, 1.0);
         }
         updateMessage("全部完成");
         return null;
+    }
+
+    private void processItem(BatchItem item, int index, int total, AtomicInteger completed) {
+        Platform.runLater(() -> item.setStatus("处理中"));
+
+        AtomicBoolean stop = null;
+        Thread monitor = null;
+        try {
+            Path input = item.getInput();
+            AudioInfo info = item.getInfo() != null
+                    ? item.getInfo()
+                    : service.readInfo(input.toString());
+            item.setInfo(info);
+
+            ConversionSettings requested = item.getAteOverride() != null
+                    ? item.getAteOverride()
+                    : settings;
+            ConversionSettings effectiveSettings = requested;
+            if (requested.getMode() == ConversionSettings.OutputMode.PCM) {
+                int resolvedRate = compatiblePcmRate(info, requested);
+                if (resolvedRate != requested.getPcmRate()) {
+                    effectiveSettings = requested.copyWithPcmRate(resolvedRate);
+                    logSink.accept("目标采样率调整为 " + resolvedRate
+                            + " Hz（" + familyLabel(info) + "）");
+                }
+            }
+            String output = deriveOutput(input, outputDir, effectiveSettings);
+            Files.deleteIfExists(Path.of(output));
+
+            long expectedBytes = estimateBytes(info, effectiveSettings);
+            AtomicBoolean threadStop = new AtomicBoolean(false);
+            stop = threadStop;
+            Thread localMonitor = new Thread(() ->
+                    monitorOutput(output, expectedBytes, item, index, total, threadStop));
+            monitor = localMonitor;
+            monitor.setDaemon(true);
+            monitor.start();
+
+            Platform.runLater(() -> item.setProgress(0.02));
+            updateMessage("开始转换: " + item.getFileName());
+            logSink.accept("开始转换: " + item.getFileName());
+
+            service.convert(input.toString(), output, effectiveSettings);
+
+            if (Thread.interrupted()) {
+                throw new InterruptedException("cancelled after native call");
+            }
+
+            Platform.runLater(() -> {
+                item.setProgress(1.0);
+                item.setStatus("完成");
+                item.appendLog("输出: " + output);
+            });
+            logSink.accept("完成: " + item.getFileName() + " -> " + output);
+        } catch (IOException | RuntimeException ex) {
+            Platform.runLater(() -> {
+                item.setStatus("失败");
+                item.appendLog(ex.getMessage() == null ? ex.toString() : ex.getMessage());
+            });
+            logSink.accept("失败: " + item.getFileName() + " - "
+                    + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        } finally {
+            if (stop != null) {
+                stop.set(true);
+            }
+            if (monitor != null) {
+                monitor.interrupt();
+            }
+            int value = completed.incrementAndGet();
+            updateProgress((double) value / total, 1.0);
+        }
+    }
+
+    private void setCancelledItems() {
+        for (BatchItem item : items) {
+            if (!"完成".equals(item.getStatus()) && !"失败".equals(item.getStatus())
+                    && !"已跳过".equals(item.getStatus())) {
+                Platform.runLater(() -> item.setStatus("已取消"));
+            }
+        }
     }
 
     private void monitorOutput(

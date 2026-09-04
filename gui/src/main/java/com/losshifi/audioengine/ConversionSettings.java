@@ -142,6 +142,7 @@ public final class ConversionSettings {
     private double ateCrossoverDepth = 0;
     private double ateEvenHarmonics = 1.0;
     private double ateOddHarmonics = 1.0;
+    private int parallelism = 2;
 
     public OutputMode getMode() {
         return mode;
@@ -263,6 +264,14 @@ public final class ConversionSettings {
         this.ateOddHarmonics = ateOddHarmonics;
     }
 
+    public int getParallelism() {
+        return parallelism;
+    }
+
+    public void setParallelism(int parallelism) {
+        this.parallelism = parallelism;
+    }
+
     public int outputFormatCode() {
         return mode == OutputMode.PCM ? pcmFormat.getCode() : dsdFormat.getCode();
     }
@@ -288,6 +297,7 @@ public final class ConversionSettings {
         copy.ateCrossoverDepth = ateCrossoverDepth;
         copy.ateEvenHarmonics = ateEvenHarmonics;
         copy.ateOddHarmonics = ateOddHarmonics;
+        copy.parallelism = parallelism;
         return copy;
     }
 }
