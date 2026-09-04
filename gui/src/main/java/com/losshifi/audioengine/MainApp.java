@@ -59,6 +59,7 @@ import javafx.stage.Stage;
 import java.awt.Desktop;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -133,6 +134,7 @@ public final class MainApp extends Application {
     private final Button converterOpenButton = new Button("OPEN CONVERTER");
     private final Button ateOpenButton = new Button("OPEN ATE LAB");
     private final Button dashboardOutputButton = new Button("OPEN OUTPUT");
+    private final Button updateButton = new Button("检查更新");
     private final Label dashboardQueueLabel = new Label("QUEUE 0");
     private final Label outputStatusLabel = new Label("OUTPUT -");
     private final Label ateCurrentFileLabel = new Label("未选择文件");
@@ -240,6 +242,9 @@ public final class MainApp extends Application {
             Map.entry("匹配中...", "Matching..."),
             Map.entry("预览", "Preview"),
             Map.entry("生成中...", "Preparing..."),
+            Map.entry("检查更新", "Check Updates"),
+            Map.entry("当前系统无法打开浏览器", "Browser is unavailable"),
+            Map.entry("打开更新页面失败: ", "Failed to open update page: "),
             Map.entry("AUTO", "Auto")
     );
     private static final Map<String, String> HANT_TEXT = Map.ofEntries(
@@ -309,6 +314,9 @@ public final class MainApp extends Application {
             Map.entry("匹配中...", "匹配中..."),
             Map.entry("预览", "預覽"),
             Map.entry("生成中...", "產生中..."),
+            Map.entry("检查更新", "檢查更新"),
+            Map.entry("当前系统无法打开浏览器", "目前系統無法開啟瀏覽器"),
+            Map.entry("打开更新页面失败: ", "開啟更新頁面失敗: "),
             Map.entry("AUTO", "自動")
     );
     private static final Map<String, String> HANT_EN_TEXT = Map.ofEntries(
@@ -770,11 +778,12 @@ public final class MainApp extends Application {
         addButton.setOnAction(event -> chooseFiles());
         outputButton.setOnAction(event -> chooseOutputDir());
         clearButton.setOnAction(event -> clearQueue());
+        updateButton.setOnAction(event -> checkForUpdate());
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox bar = new HBox(10, backButton, brand, spacer, languageBox,
-                addButton, outputButton, clearButton);
+                addButton, outputButton, clearButton, updateButton);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(12));
         bar.getStyleClass().add("panel");
@@ -1426,6 +1435,19 @@ public final class MainApp extends Application {
         });
         opener.setDaemon(true);
         opener.start();
+    }
+
+    private void checkForUpdate() {
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(URI.create(
+                        "https://github.com/DBC091126/audio_engine/releases"));
+            } else {
+                appendLog("当前系统无法打开浏览器");
+            }
+        } catch (IOException | RuntimeException ex) {
+            appendLog("打开更新页面失败: " + ex.getMessage());
+        }
     }
 
     private void updateQueueStats() {
