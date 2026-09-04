@@ -88,6 +88,116 @@ pub fn make_lowpass_fir(taps: usize, cutoff: f32, gain: f32) -> Vec<f32> {
     coeffs
 }
 
+pub struct PolyphaseUpsampler {
+    factor: usize,
+    coeffs: Vec<f32>,
+    half: usize,
+    history: Vec<f32>,
+}
+
+impl PolyphaseUpsampler {
+    pub fn new(factor: usize) -> Self {
+        let cutoff = 0.45 / factor as f32;
+        let coeffs = make_lowpass_fir(65, cutoff, factor as f32);
+        Self {
+            factor,
+            half: coeffs.len() / 2,
+            coeffs,
+            history: Vec::new(),
+        }
+    }
+
+    pub fn process(&mut self, input: &[f32]) -> Vec<f32> {
+        let mut buf = Vec::with_capacity(self.history.len() + input.len());
+        buf.extend_from_slice(&self.history);
+        buf.extend_from_slice(input);
+        let h = self.history.len();
+        let out_len = input.len().saturating_mul(self.factor);
+        let mut output = Vec::with_capacity(out_len);
+
+        for k in 0..out_len {
+            let global = h + k;
+            let q_start = ((global as isize - self.half as isize).div_euclid(self.factor as isize))
+                .max(0) as usize;
+            let q_end = ((global as isize + self.half as isize)
+                .div_euclid(self.factor as isize)
+                + 1)
+                .min(buf.len() as isize) as usize;
+            let mut sum = 0.0f32;
+            for q in q_start..q_end {
+                let j = (self.factor as isize * q as isize - global as isize
+                    + self.half as isize) as usize;
+                if j < self.coeffs.len() {
+                    sum += self.coeffs[j] * buf[q];
+                }
+            }
+            output.push(sum);
+        }
+
+        self.history = if buf.len() >= self.half {
+            buf[buf.len() - self.half..].to_vec()
+        } else {
+            buf
+        };
+        output
+    }
+}
+
+pub struct PolyphaseDownsampler {
+    factor: usize,
+    coeffs: Vec<f32>,
+    half: usize,
+    history: Vec<f32>,
+}
+
+impl PolyphaseDownsampler {
+    pub fn new(factor: usize) -> Self {
+        let cutoff = 0.45 / factor as f32;
+        let coeffs = make_lowpass_fir(65, cutoff, 1.0);
+        Self {
+            factor,
+            half: coeffs.len() / 2,
+            coeffs,
+            history: Vec::new(),
+        }
+    }
+
+    pub fn process(&mut self, input: &[f32]) -> Vec<f32> {
+        let mut buf = Vec::with_capacity(self.history.len() + input.len());
+        buf.extend_from_slice(&self.history);
+        buf.extend_from_slice(input);
+        let h = self.history.len();
+        let output_len = if input.len() > self.factor / 2 {
+            (input.len() - self.factor / 2 + self.factor - 1) / self.factor
+        } else {
+            0
+        };
+        let mut output = Vec::with_capacity(output_len);
+
+        for m in 0..output_len {
+            let center = h + m * self.factor + self.factor / 2;
+            let mut sum = 0.0f32;
+            for (j, &coeff) in self.coeffs.iter().enumerate() {
+                let index = center as isize + j as isize - self.half as isize;
+                let value = if index < 0 || index >= buf.len() as isize {
+                    0.0
+                } else {
+                    buf[index as usize]
+                };
+                sum += coeff * value;
+            }
+            output.push(sum);
+        }
+
+        self.history = if buf.len() >= self.half {
+            buf[buf.len() - self.half..].to_vec()
+        } else {
+            buf
+        };
+        output
+    }
+}
+
 pub fn apply_dc_block(samples: &mut [f32], sample_rate: u32) {
     let alpha = (2.0 * std::f32::consts::PI * 2.0 / sample_rate as f32).min(0.999);
     let feedback = 1.0 - alpha;

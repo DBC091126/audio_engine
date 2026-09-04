@@ -4,7 +4,8 @@ use std::os::raw::c_char;
 use anyhow::{anyhow, Error};
 
 use crate::ate::{
-    analyze_spectrum_mono, process_ate, AteAnalyzer, AteConfig, AtePreset, OversamplingMode,
+    analyze_spectrum_mono, process_ate, AteAnalyzer, AteConfig, AtePreset, AteStream,
+    OversamplingMode,
 };
 use crate::decode_file;
 use crate::decoder::{decode_preview_seconds, probe_file, AudioData};
@@ -571,6 +572,27 @@ fn process_pcm_file(
     if ate_enable != 0 {
         if audio.channels != 2 {
             return Err(anyhow!("ATE currently requires stereo input"));
+        }
+        if audio.sample_rate == target_rate {
+            let config =
+                ate_config(ate_enable, ate_style, ate_intensity, target_rate, controls);
+            let mut stream =
+                AteStream::new(&config, target_rate).map_err(anyhow::Error::msg)?;
+            let channels = usize::from(audio.channels);
+            let mut writer = PcmStreamWriter::create(
+                output,
+                target_rate,
+                audio.channels,
+                bit_depth,
+                format,
+                &audio.metadata,
+            )?;
+            for block in audio.samples.chunks(PROCESS_BLOCK_FRAMES * channels) {
+                let processed = stream.process_stereo_block(block);
+                writer.write_block(&processed)?;
+            }
+            writer.finish()?;
+            return Ok(());
         }
         let base = family_base(target_rate)?;
         let config = ate_config(ate_enable, ate_style, ate_intensity, target_rate, controls);

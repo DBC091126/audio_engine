@@ -25,6 +25,9 @@
 - Added five more ATE device presets: power transformer, cathode follower,
   opamp preamp, phono cartridge resonance, and DAC filter rolloff.
 - Added a one-click update check button in the toolbar.
+- Added streaming DSD-to-PCM conversion that writes directly to the output file.
+- Added a stateful streaming ATE path for same-rate conversions so long songs no
+  longer need a second full Float32 buffer during ATE processing.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0

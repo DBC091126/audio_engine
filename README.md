@@ -25,6 +25,9 @@ the ATE analog texture engine. It ships as a Rust core with a JavaFX GUI.
 - One-click update check that opens the GitHub release page.
 - Multi-threaded decode, ATE filtering, DSD modulation, and CLI batch decode.
 - Streaming DSF/DFF writers and a streaming DSD packer to reduce memory.
+- Streaming DSD-to-PCM conversion that writes blocks directly to the output.
+- Stateful streaming ATE for same-rate conversions, keeping processed audio
+  buffered in small blocks instead of a full second copy.
 - SHA-256 checksums published with every GitHub release installer.
 
 ## Releases
