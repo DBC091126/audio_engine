@@ -284,11 +284,25 @@ public final class MusicPlayerView extends BorderPane {
             if (favoritesOnly && !favorites.contains(path.toString())) {
                 continue;
             }
-            if (query.isEmpty() || path.getFileName().toString().toLowerCase().contains(query)) {
+            if (query.isEmpty() || matchesMetadata(path, query)
+                    || path.getFileName().toString().toLowerCase().contains(query)) {
                 filtered.add(path);
             }
         }
         visibleFiles.setAll(filtered);
+    }
+
+    private boolean matchesMetadata(Path path, String query) {
+        AudioInfo info = infoMap.get(path);
+        if (info == null) {
+            return false;
+        }
+        for (String value : info.getMetadata().values()) {
+            if (value != null && value.toLowerCase().contains(query)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void loadMetadata() {
@@ -297,7 +311,10 @@ public final class MusicPlayerView extends BorderPane {
                 if (!infoMap.containsKey(path)) {
                     try {
                         infoMap.put(path, service.readInfo(path.toString()));
-                        Platform.runLater(table::refresh);
+                        Platform.runLater(() -> {
+                            table.refresh();
+                            applyFilter();
+                        });
                     } catch (Exception ignored) {
                         // Keep the filename-only fallback.
                     }
