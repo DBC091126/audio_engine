@@ -32,6 +32,8 @@
   and engine-backed temporary WAV decoding for unsupported system formats.
 - Added real-time ATE playback through `SourceDataLine` and the new
   `ate_stream_create/process/destroy` FFI API.
+- Added player favorites, repeat/shuffle, file-info dialog, and a live
+  spectrum-style visualizer canvas.
 - Bumped the project, Maven, installer, and release version to `1.2.1`.
 
 ## 1.1.0

@@ -1,6 +1,7 @@
 package com.losshifi.audioengine;
 
 import javafx.application.Platform;
+import javafx.animation.AnimationTimer;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -13,6 +14,8 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -20,6 +23,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
+import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
 
@@ -67,6 +71,8 @@ public final class MusicPlayerView extends BorderPane {
     private final Label nowTitle = new Label("Nothing playing");
     private final Label nowInfo = new Label("-");
     private final Label positionLabel = new Label("0:00 / 0:00");
+    private final Canvas spectrumCanvas = new Canvas(640, 90);
+    private final double[] levelBars = new double[64];
 
     private final Map<Path, Path> wavCache = new HashMap<>();
     private MediaPlayer mediaPlayer;
@@ -110,6 +116,13 @@ public final class MusicPlayerView extends BorderPane {
         });
         searchField.textProperty().addListener((obs, old, text) -> applyFilter());
         loadFavorites();
+        AnimationTimer timer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                drawVisualizer();
+            }
+        };
+        timer.start();
     }
 
     private HBox buildToolbar() {
@@ -149,7 +162,7 @@ public final class MusicPlayerView extends BorderPane {
         timing.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(progressSlider, Priority.ALWAYS);
         VBox left = new VBox(6, nowTitle, nowInfo);
-        VBox box = new VBox(10, left, timing, controls, volumeSlider);
+        VBox box = new VBox(10, spectrumCanvas, left, timing, controls, volumeSlider);
         box.setPadding(new Insets(14));
         box.getStyleClass().add("panel");
         return box;
@@ -250,6 +263,19 @@ public final class MusicPlayerView extends BorderPane {
                             inputFloats[i] = littleToFloat(inputBytes, i);
                         }
                         service.processAteStream(ate, inputFloats, outputFloats);
+                        int segments = levelBars.length;
+                        for (int segment = 0; segment < segments; segment++) {
+                            int start = segment * samples / segments;
+                            int end = (segment + 1) * samples / segments;
+                            double sum = 0;
+                            for (int i = start; i < end; i++) {
+                                sum += Math.abs(outputFloats[i]);
+                            }
+                            int segmentCount = end - start;
+                            levelBars[segment] = segmentCount > 0
+                                    ? Math.min(1.0, sum / segmentCount * 2.5)
+                                    : 0;
+                        }
                         byte[] outputBytes = new byte[samples * 2];
                         for (int i = 0; i < samples; i++) {
                             writeFloat(outputFloats[i], outputBytes, i);
@@ -482,6 +508,25 @@ public final class MusicPlayerView extends BorderPane {
     private static String format(long millis) {
         long totalSeconds = millis / 1000;
         return String.format("%d:%02d", totalSeconds / 60, totalSeconds % 60);
+    }
+
+    private void drawVisualizer() {
+        GraphicsContext g = spectrumCanvas.getGraphicsContext2D();
+        double width = spectrumCanvas.getWidth();
+        double height = spectrumCanvas.getHeight();
+        g.clearRect(0, 0, width, height);
+        g.setFill(Color.rgb(18, 19, 26));
+        g.fillRect(0, 0, width, height);
+        g.setStroke(Color.rgb(255, 255, 255, 0.10));
+        g.strokeLine(0, height / 2, width, height / 2);
+        double slot = width / levelBars.length;
+        double barWidth = slot * 0.62;
+        g.setFill(Color.rgb(77, 193, 255, 0.88));
+        for (int i = 0; i < levelBars.length; i++) {
+            double barHeight = Math.max(1.0, levelBars[i] * (height - 8));
+            double x = i * slot + (slot - barWidth) / 2;
+            g.fillRect(x, height - barHeight, barWidth, barHeight);
+        }
     }
 
     private final class FileCell extends ListCell<Path> {
