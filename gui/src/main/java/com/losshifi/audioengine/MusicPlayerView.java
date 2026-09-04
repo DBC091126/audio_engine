@@ -526,6 +526,22 @@ public final class MusicPlayerView extends BorderPane {
         }
     }
 
+    public void togglePlayback() {
+        togglePlay();
+    }
+
+    public void nextTrack() {
+        next();
+    }
+
+    public void previousTrack() {
+        previous();
+    }
+
+    public void focusSearch() {
+        searchField.requestFocus();
+    }
+
     private void previous() {
         int index = visibleFiles.indexOf(currentPath);
         if (index > 0) {

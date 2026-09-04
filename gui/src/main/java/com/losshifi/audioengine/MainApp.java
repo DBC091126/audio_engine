@@ -39,6 +39,7 @@ import javafx.scene.control.TextArea;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
@@ -444,6 +445,21 @@ public final class MainApp extends Application {
         playerRoot.setCenter(playerView);
         playerScene = new Scene(playerRoot, 1240, 820);
         playerScene.getStylesheets().add(getClass().getResource("themes.css").toExternalForm());
+        playerScene.setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.SPACE) {
+                playerView.togglePlayback();
+                event.consume();
+            } else if (event.getCode() == KeyCode.RIGHT) {
+                playerView.nextTrack();
+                event.consume();
+            } else if (event.getCode() == KeyCode.LEFT) {
+                playerView.previousTrack();
+                event.consume();
+            } else if (event.isShortcutDown() && event.getCode() == KeyCode.F) {
+                playerView.focusSearch();
+                event.consume();
+            }
+        });
         stage.setTitle("Audio Engine");
 
         fileList.setCellFactory(list -> new BatchCell());
