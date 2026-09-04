@@ -29,6 +29,9 @@ public final class FfiSmoke {
             System.out.println("converted=" + args[1]);
             ResponseCurve curve = service.readAteResponseCurve(args[0], settings);
             System.out.println("response_curve_points=" + curve.points().size());
+            AudioEngineService.ReferenceProfile profile = service.analyzeReference(args[0]);
+            System.out.printf("reference even=%.1f odd=%.1f noise=%.1f thd=%.3f%n",
+                    profile.evenDb, profile.oddDb, profile.noiseFloorDb, profile.thdPercent);
         }
     }
 }

@@ -94,6 +94,58 @@ public final class AudioEngineService {
         return ResponseCurve.parse(buffer.getString(0, StandardCharsets.UTF_8.name()));
     }
 
+    public ReferenceProfile analyzeReference(String input) throws IOException {
+        Memory buffer = new Memory(1 << 20);
+        int rc = library.analyze_reference(input, buffer, buffer.size());
+        if (rc != 0) {
+            String nativeError = buffer.getString(0, StandardCharsets.UTF_8.name());
+            if (nativeError != null && nativeError.startsWith("ERROR:")) {
+                throw new IOException(nativeError.substring("ERROR:".length()).trim());
+            }
+            throw new IOException("analyze_reference failed with code " + rc);
+        }
+        return ReferenceProfile.parse(buffer.getString(0, StandardCharsets.UTF_8.name()));
+    }
+
+    public static final class ReferenceProfile {
+        public final double evenDb;
+        public final double oddDb;
+        public final double noiseFloorDb;
+        public final double thdPercent;
+
+        private ReferenceProfile(double evenDb, double oddDb, double noiseFloorDb, double thdPercent) {
+            this.evenDb = evenDb;
+            this.oddDb = oddDb;
+            this.noiseFloorDb = noiseFloorDb;
+            this.thdPercent = thdPercent;
+        }
+
+        static ReferenceProfile parse(String text) {
+            double evenDb = -200;
+            double oddDb = -200;
+            double noiseFloorDb = -200;
+            double thdPercent = 0;
+            for (String line : text.split("\\n")) {
+                if (!line.contains("=")) {
+                    continue;
+                }
+                String[] parts = line.split("=");
+                if (parts.length != 2) {
+                    continue;
+                }
+                double value = Double.parseDouble(parts[1]);
+                switch (parts[0]) {
+                    case "even_db" -> evenDb = value;
+                    case "odd_db" -> oddDb = value;
+                    case "noise_floor_db" -> noiseFloorDb = value;
+                    case "thd_percent" -> thdPercent = value;
+                    default -> { }
+                }
+            }
+            return new ReferenceProfile(evenDb, oddDb, noiseFloorDb, thdPercent);
+        }
+    }
+
     private static Map<String, String> parseMetadata(String text) {
         Map<String, String> metadata = new LinkedHashMap<>();
         if (text == null || text.isBlank()) {

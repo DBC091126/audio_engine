@@ -81,6 +81,8 @@ public interface AudioEngineLibrary extends Library {
             Pointer buffer,
             long bufferSize);
 
+    int analyze_reference(String inputPath, Pointer buffer, long bufferSize);
+
     static AudioEngineLibrary load() {
         String configured = System.getProperty("audio_engine.library.path");
         if (configured != null && !configured.isBlank()) {

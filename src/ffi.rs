@@ -4,7 +4,7 @@ use std::os::raw::c_char;
 use anyhow::{anyhow, Error};
 
 use crate::ate::{
-    analyze_spectrum_mono, process_ate, AteConfig, AtePreset, OversamplingMode,
+    analyze_spectrum_mono, process_ate, AteAnalyzer, AteConfig, AtePreset, OversamplingMode,
 };
 use crate::decode_file;
 use crate::decoder::{decode_preview_seconds, probe_file, AudioData};
@@ -325,6 +325,49 @@ pub extern "C" fn get_ate_response_curve(
     };
     write_text(&curve, buffer, buffer_size);
     0
+}
+
+/// Analyze the harmonic/noise fingerprint of a reference track.
+///
+/// Returns `even_db`, `odd_db`, `noise_floor_db`, and `thd_percent` lines.
+#[unsafe(no_mangle)]
+pub extern "C" fn analyze_reference(
+    input_path: *const c_char,
+    buffer: *mut c_char,
+    buffer_size: usize,
+) -> i32 {
+    let input = match cstr_to_string(input_path) {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("[FFI ERROR] {message}");
+            return -1;
+        }
+    };
+    let result = match build_reference_fingerprint(&input) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("[FFI ERROR] {error:#}");
+            write_text(&format!("ERROR: {error:#}"), buffer, buffer_size);
+            return -1;
+        }
+    };
+    write_text(&result, buffer, buffer_size);
+    0
+}
+
+fn build_reference_fingerprint(input: &str) -> Result<String, Error> {
+    let audio = decode_preview_seconds(input, 2.0)?;
+    let mono = to_mono(&audio.samples);
+    if mono.is_empty() {
+        return Err(anyhow!("reference file is empty"));
+    }
+    let result = AteAnalyzer::analyze_harmonics(&mono, audio.sample_rate, 1000.0);
+    let even_db = (result.h2_db + result.h4_db) * 0.5;
+    let odd_db = (result.h3_db + result.h5_db) * 0.5;
+    Ok(format!(
+        "even_db={even_db:.2}\nodd_db={odd_db:.2}\nnoise_floor_db={:.2}\nthd_percent={:.3}\n",
+        result.noise_floor_db, result.thd_percent
+    ))
 }
 
 /// Response curve with tunable ATE controls for the advanced GUI lab.

@@ -114,6 +114,7 @@ public final class MainApp extends Application {
     private final Button clearButton = new Button("清空队列");
     private final Button removeButton = new Button("移除选中");
     private final Button responseCompareButton = new Button("响应对比");
+    private final Button matchReferenceButton = new Button("音色匹配");
     private final Button ateSelectButton = new Button("选择音频");
     private final Button startButton = new Button("开始转换");
     private final Button cancelButton = new Button("取消");
@@ -221,6 +222,8 @@ public final class MainApp extends Application {
             Map.entry("偶次谐波", "Even Harmonics"),
             Map.entry("奇次谐波", "Odd Harmonics"),
             Map.entry("重置自定义", "Reset Custom"),
+            Map.entry("音色匹配", "Match Reference"),
+            Map.entry("匹配中...", "Matching..."),
             Map.entry("AUTO", "Auto")
     );
     private static final Map<String, String> HANT_TEXT = Map.ofEntries(
@@ -282,6 +285,8 @@ public final class MainApp extends Application {
             Map.entry("偶次谐波", "偶次諧波"),
             Map.entry("奇次谐波", "奇次諧波"),
             Map.entry("重置自定义", "重設自訂"),
+            Map.entry("音色匹配", "音色匹配"),
+            Map.entry("匹配中...", "匹配中..."),
             Map.entry("AUTO", "自動")
     );
     private static final Map<String, String> HANT_EN_TEXT = Map.ofEntries(
@@ -890,6 +895,8 @@ public final class MainApp extends Application {
         responseCompareButton.getStyleClass().add("primary-button");
         responseCompareButton.setMaxWidth(Double.MAX_VALUE);
         responseCompareButton.setOnAction(event -> analyzeResponseCurve());
+        matchReferenceButton.setMaxWidth(Double.MAX_VALUE);
+        matchReferenceButton.setOnAction(event -> matchReferenceTone());
         configureAteStyleCells();
 
         VBox panel = new VBox(12,
@@ -908,6 +915,7 @@ public final class MainApp extends Application {
                 new Label("偶次谐波"), ateEvenHarmonicSlider, ateEvenHarmonicLabel,
                 new Label("奇次谐波"), ateOddHarmonicSlider, ateOddHarmonicLabel,
                 resetAteCustomButton,
+                matchReferenceButton,
                 responseCompareButton);
         panel.setPadding(new Insets(12));
         return panel;
@@ -1400,6 +1408,7 @@ public final class MainApp extends Application {
         ateEvenHarmonicSlider.setDisable(!enabled);
         ateOddHarmonicSlider.setDisable(!enabled);
         resetAteCustomButton.setDisable(!enabled);
+        matchReferenceButton.setDisable(!enabled);
     }
 
     private void applyBlackTheme() {
@@ -1433,6 +1442,63 @@ public final class MainApp extends Application {
             event.setDropCompleted(completed);
             event.consume();
         });
+    }
+
+    private void matchReferenceTone() {
+        if (batchRunning) {
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("选择参考音色");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                "支持的音频",
+                "*.wav", "*.flac", "*.mp3", "*.ogg", "*.opus", "*.m4a", "*.aac", "*.mp4",
+                "*.aiff", "*.aif", "*.dsf", "*.dff"));
+        File selected = chooser.showOpenDialog(stage);
+        if (selected == null) {
+            return;
+        }
+
+        matchReferenceButton.setDisable(true);
+        matchReferenceButton.setText(translateText("匹配中..."));
+        appendLog("开始分析参考音色: " + selected.getName());
+        Task<AudioEngineService.ReferenceProfile> task = new Task<>() {
+            @Override
+            protected AudioEngineService.ReferenceProfile call() throws Exception {
+                return service.analyzeReference(selected.getAbsolutePath());
+            }
+        };
+        task.setOnSucceeded(event -> {
+            matchReferenceButton.setDisable(false);
+            matchReferenceButton.setText(translateText("音色匹配"));
+            AudioEngineService.ReferenceProfile profile = task.getValue();
+            applyReferenceProfile(profile);
+            appendLog(String.format(
+                    "匹配完成: even=%.1f dB, odd=%.1f dB, noise=%.1f dB, THD=%.3f%%",
+                    profile.evenDb, profile.oddDb, profile.noiseFloorDb, profile.thdPercent));
+        });
+        task.setOnFailed(event -> {
+            matchReferenceButton.setDisable(false);
+            matchReferenceButton.setText(translateText("音色匹配"));
+            Throwable error = task.getException();
+            appendLog("参考音色分析失败: "
+                    + (error == null ? "未知错误" : error.getMessage()));
+        });
+        Thread thread = new Thread(task);
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void applyReferenceProfile(AudioEngineService.ReferenceProfile profile) {
+        double evenScale = Math.pow(10, (profile.evenDb + 60.0) / 40.0);
+        double oddScale = Math.pow(10, (profile.oddDb + 60.0) / 40.0);
+        ateEvenHarmonicSlider.setValue(clamp(0.2, 2.0, evenScale));
+        ateOddHarmonicSlider.setValue(clamp(0.2, 2.0, oddScale));
+        ateCheck.setSelected(true);
+    }
+
+    private static double clamp(double min, double max, double value) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private void analyzeResponseCurve() {
