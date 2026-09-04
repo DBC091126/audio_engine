@@ -30,6 +30,8 @@ are secondary tools accessible from the same navigation.
   sound card.
 - Live player visualizer: a 64-bar spectrum-style canvas is driven by the
   real-time DSP audio buffer while playing with ATE enabled.
+- Playlist import/export via M3U and local cover-art display from common
+  folder names (`cover.jpg`, `folder.jpg`, etc).
 - Batch per-file ATE overrides, skip selection, queue reorder, parallel conversion,
   and automatic conflict renaming.
 - Playback preview that turns FLAC/OGG/DSD etc. into a temporary WAV.

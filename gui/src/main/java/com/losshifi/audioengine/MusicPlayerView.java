@@ -16,6 +16,8 @@ import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -25,6 +27,7 @@ import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 import javax.sound.sampled.AudioFormat;
@@ -66,6 +69,8 @@ public final class MusicPlayerView extends BorderPane {
     private final Button repeatButton = new Button("\uD83D\uDD01");
     private final Button favoriteButton = new Button("☆");
     private final Button infoButton = new Button("Info");
+    private final Button savePlaylistButton = new Button("Save Playlist");
+    private final Button loadPlaylistButton = new Button("Load Playlist");
     private final Slider progressSlider = new Slider(0, 1, 0);
     private final Slider volumeSlider = new Slider(0, 1, 0.8);
     private final Label nowTitle = new Label("Nothing playing");
@@ -73,6 +78,7 @@ public final class MusicPlayerView extends BorderPane {
     private final Label positionLabel = new Label("0:00 / 0:00");
     private final Canvas spectrumCanvas = new Canvas(640, 90);
     private final double[] levelBars = new double[64];
+    private final ImageView coverImage = new ImageView();
 
     private final Map<Path, Path> wavCache = new HashMap<>();
     private MediaPlayer mediaPlayer;
@@ -127,11 +133,14 @@ public final class MusicPlayerView extends BorderPane {
 
     private HBox buildToolbar() {
         addFolderButton.setOnAction(event -> chooseFolder());
+        savePlaylistButton.setOnAction(event -> savePlaylist());
+        loadPlaylistButton.setOnAction(event -> loadPlaylist());
         searchField.setPromptText("Search");
         searchField.setPrefWidth(260);
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(10, addFolderButton, searchField, spacer);
+        HBox bar = new HBox(10, addFolderButton, savePlaylistButton,
+                loadPlaylistButton, searchField, spacer);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(12));
         bar.getStyleClass().add("panel");
@@ -162,7 +171,12 @@ public final class MusicPlayerView extends BorderPane {
         timing.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(progressSlider, Priority.ALWAYS);
         VBox left = new VBox(6, nowTitle, nowInfo);
-        VBox box = new VBox(10, spectrumCanvas, left, timing, controls, volumeSlider);
+        coverImage.setFitWidth(84);
+        coverImage.setFitHeight(84);
+        coverImage.setPreserveRatio(true);
+        HBox artwork = new HBox(12, coverImage, left);
+        artwork.setAlignment(Pos.CENTER_LEFT);
+        VBox box = new VBox(10, spectrumCanvas, artwork, timing, controls, volumeSlider);
         box.setPadding(new Insets(14));
         box.getStyleClass().add("panel");
         return box;
@@ -216,6 +230,7 @@ public final class MusicPlayerView extends BorderPane {
         currentPath = path;
         nowTitle.setText(path.getFileName().toString());
         favoriteButton.setText(favorites.contains(path.toString()) ? "★" : "☆");
+        loadCover(path);
         ConversionSettings settings = settingsSupplier.get();
         new Thread(() -> {
             try {
@@ -502,6 +517,69 @@ public final class MusicPlayerView extends BorderPane {
             Files.write(file, favorites, StandardCharsets.UTF_8);
         } catch (IOException ignored) {
             // Best effort persistence.
+        }
+    }
+
+    private void loadCover(Path path) {
+        Path parent = path.getParent();
+        if (parent == null) {
+            coverImage.setImage(null);
+            return;
+        }
+        String[] names = {"cover.jpg", "cover.png", "folder.jpg", "folder.png",
+                "front.jpg", "front.png", "AlbumArt.jpg", "AlbumArt.png"};
+        for (String name : names) {
+            Path candidate = parent.resolve(name);
+            if (Files.isRegularFile(candidate)) {
+                coverImage.setImage(new Image(candidate.toUri().toString()));
+                return;
+            }
+        }
+        coverImage.setImage(null);
+    }
+
+    private void savePlaylist() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save Playlist");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("M3U Playlist", "*.m3u"));
+        File selected = chooser.showSaveDialog(stage);
+        if (selected == null) {
+            return;
+        }
+        try {
+            StringBuilder text = new StringBuilder("#EXTM3U\n");
+            for (Path path : visibleFiles) {
+                text.append(path.toAbsolutePath()).append('\n');
+            }
+            Files.writeString(selected.toPath(), text.toString(), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            nowInfo.setText("Failed: " + ex.getMessage());
+        }
+    }
+
+    private void loadPlaylist() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Load Playlist");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("M3U Playlist", "*.m3u"));
+        File selected = chooser.showOpenDialog(stage);
+        if (selected == null) {
+            return;
+        }
+        try {
+            List<Path> loaded = new ArrayList<>();
+            for (String line : Files.readAllLines(selected.toPath(), StandardCharsets.UTF_8)) {
+                if (line.isBlank() || line.startsWith("#")) {
+                    continue;
+                }
+                Path path = Path.of(line);
+                if (Files.isRegularFile(path) && isSupported(path)) {
+                    loaded.add(path);
+                }
+            }
+            allFiles.setAll(loaded);
+            applyFilter();
+        } catch (IOException ex) {
+            nowInfo.setText("Failed: " + ex.getMessage());
         }
     }
 
